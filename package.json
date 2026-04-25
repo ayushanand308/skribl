@@ -1,0 +1,29 @@
+{
+  "name": "skribl",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server/dist/index.js",
+    "dev:server": "nodemon server/src/index.ts",
+    "dev:client": "npx -y http-server client -p 3001",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "keywords": [],
+  "description": "",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.3.2",
+    "nodemon": "^3.1.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

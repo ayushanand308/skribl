@@ -1,0 +1,44 @@
+import express, { Router } from "express";
+import cors from "cors";
+import { Server } from "socket.io";
+import { createServer } from "http";
+import { handleRoom } from "./socket/handlers/roomHandler";
+import { handleChat } from "./socket/handlers/chatHandler";
+import { handleGame } from "./socket/handlers/gameHandler";
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+const httpServer = createServer(app);
+
+const router = Router();
+router.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", message: "Server is running" });
+});
+app.use("/", router);
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on("connection", (socket) => {
+  console.log(`[Socket] Client connected: ${socket.id}`);
+  
+  socket.on("disconnect", () => {
+    console.log(`[Socket] Client disconnected: ${socket.id}`);
+  });
+
+  handleRoom(socket ,io)
+  handleChat(socket, io)
+  handleGame(socket, io)
+});
+
+const PORT = process.env.PORT || 3000;
+httpServer.listen(PORT, () => {
+  console.log(`[Server] Listening on port ${PORT}`);
+});

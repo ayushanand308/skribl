@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skribl — Draw, Guess, Win!</title>
+  <meta name="description" content="A real-time multiplayer drawing and guessing game. Create a room, invite friends, and compete!" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="screen-home" class="screen active">
+    <div class="home-container">
+      <div class="logo-section">
+        <h1 class="logo">
+          <span class="logo-s">S</span><span class="logo-k">k</span><span class="logo-r">r</span><span class="logo-i">i</span><span class="logo-b">b</span><span class="logo-l">l</span>
+        </h1>
+        <p class="tagline">Draw. Guess. Win.</p>
+      </div>
+
+      <div class="home-card">
+        <div class="avatar-picker">
+          <label class="input-label">Choose Your Avatar</label>
+          <div class="avatar-grid" id="avatar-grid"></div>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label" for="username-input">Your Name</label>
+          <input type="text" id="username-input" class="text-input" placeholder="Enter your name..." maxlength="16" autocomplete="off" />
+        </div>
+
+        <div class="home-actions">
+          <button id="btn-create-room" class="btn btn-primary btn-lg">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            Create Room
+          </button>
+          <div class="divider-text"><span>or</span></div>
+          <div class="join-row">
+            <input type="text" id="room-code-input" class="text-input" placeholder="Room Code" maxlength="6" autocomplete="off" style="text-transform: uppercase;" />
+            <button id="btn-join-room" class="btn btn-secondary">Join</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-lobby" class="screen">
+    <div class="lobby-container">
+      <div class="lobby-header">
+        <h2 class="lobby-title">Room Lobby</h2>
+        <div class="room-code-display">
+          <span class="room-code-label">Room Code:</span>
+          <span class="room-code-value" id="lobby-room-code">------</span>
+          <button class="btn-icon-only" id="btn-copy-code" title="Copy code">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="lobby-body">
+        <div class="lobby-players-section">
+          <h3 class="section-title">Players <span class="player-count" id="lobby-player-count">(0/8)</span></h3>
+          <div class="player-list" id="lobby-player-list">
+          </div>
+        </div>
+
+        <div class="lobby-settings-section" id="lobby-settings">
+          <h3 class="section-title">Game Settings</h3>
+          <div class="setting-row">
+            <label class="setting-label">Rounds</label>
+            <div class="setting-options" data-setting="rounds">
+              <button class="setting-btn" data-value="2">2</button>
+              <button class="setting-btn active" data-value="3">3</button>
+              <button class="setting-btn" data-value="5">5</button>
+              <button class="setting-btn" data-value="8">8</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label class="setting-label">Draw Time</label>
+            <div class="setting-options" data-setting="drawTime">
+              <button class="setting-btn" data-value="30">30s</button>
+              <button class="setting-btn active" data-value="60">60s</button>
+              <button class="setting-btn" data-value="90">90s</button>
+              <button class="setting-btn" data-value="120">120s</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label class="setting-label">Max Players</label>
+            <div class="setting-options" data-setting="maxPlayers">
+              <button class="setting-btn" data-value="4">4</button>
+              <button class="setting-btn active" data-value="8">8</button>
+              <button class="setting-btn" data-value="12">12</button>
+            </div>
+          </div>
+          <button id="btn-start-game" class="btn btn-primary btn-lg btn-start" disabled>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <button id="btn-leave-lobby" class="btn btn-ghost btn-sm">← Leave Room</button>
+    </div>
+  </div>
+
+  <div id="screen-game" class="screen">
+    <div class="game-container">
+      <div class="game-topbar">
+        <div class="round-info">
+          <span class="round-label">Round</span>
+          <span class="round-value" id="game-round">1 / 3</span>
+        </div>
+        <div class="word-hint" id="game-word-hint">
+        </div>
+        <div class="timer-display" id="game-timer">
+          <svg class="timer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span class="timer-value" id="game-timer-value">60</span>
+        </div>
+      </div>
+
+      <div class="game-main">
+        <div class="game-sidebar">
+          <div class="sidebar-players" id="game-player-list">
+          </div>
+        </div>
+
+        <div class="canvas-area">
+          <div class="canvas-wrapper" id="canvas-wrapper">
+            <canvas id="draw-canvas" width="800" height="600"></canvas>
+          </div>
+          <div class="draw-tools" id="draw-tools">
+            <div class="tool-group colors">
+              <button class="color-btn active" data-color="#000000" style="background:#000000" title="Black"></button>
+              <button class="color-btn" data-color="#808080" style="background:#808080" title="Gray"></button>
+              <button class="color-btn" data-color="#FFFFFF" style="background:#FFFFFF; border:1px solid #555" title="White"></button>
+              <button class="color-btn" data-color="#EF4444" style="background:#EF4444" title="Red"></button>
+              <button class="color-btn" data-color="#F97316" style="background:#F97316" title="Orange"></button>
+              <button class="color-btn" data-color="#EAB308" style="background:#EAB308" title="Yellow"></button>
+              <button class="color-btn" data-color="#22C55E" style="background:#22C55E" title="Green"></button>
+              <button class="color-btn" data-color="#06B6D4" style="background:#06B6D4" title="Cyan"></button>
+              <button class="color-btn" data-color="#3B82F6" style="background:#3B82F6" title="Blue"></button>
+              <button class="color-btn" data-color="#8B5CF6" style="background:#8B5CF6" title="Purple"></button>
+              <button class="color-btn" data-color="#EC4899" style="background:#EC4899" title="Pink"></button>
+              <button class="color-btn" data-color="#92400E" style="background:#92400E" title="Brown"></button>
+            </div>
+            <div class="tool-group sizes">
+              <button class="size-btn" data-size="3" title="Small"><span class="size-dot size-sm"></span></button>
+              <button class="size-btn active" data-size="6" title="Medium"><span class="size-dot size-md"></span></button>
+              <button class="size-btn" data-size="12" title="Large"><span class="size-dot size-lg"></span></button>
+              <button class="size-btn" data-size="24" title="Extra Large"><span class="size-dot size-xl"></span></button>
+            </div>
+            <div class="tool-group actions">
+              <button class="tool-btn" id="btn-eraser" title="Eraser">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16a1 1 0 010-1.4l9.6-9.6a1 1 0 011.4 0l7 7a1 1 0 010 1.4L15 20"/><path d="M6 11l4 4"/></svg>
+              </button>
+              <button class="tool-btn" id="btn-undo" title="Undo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6.69 3L3 13"/></svg>
+              </button>
+              <button class="tool-btn" id="btn-clear" title="Clear Canvas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+              </button>
+              <button class="tool-btn" id="btn-fill" title="Fill">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 22l1-1h3l9-9M11 6l5 5M12 3l6 6-9.5 9.5a2.1 2.1 0 01-3 0L2.6 15.6a2.1 2.1 0 010-3L12 3z"/><path d="M19 15c1 1 2 2.5 2 4a2 2 0 01-4 0c0-1.5 1-3 2-4z"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-panel">
+          <div class="chat-messages" id="chat-messages">
+            <div class="chat-msg system">Welcome to Skribl! 🎨</div>
+          </div>
+          <div class="chat-input-area">
+            <input type="text" id="chat-input" class="chat-input" placeholder="Type your guess..." maxlength="100" autocomplete="off" />
+            <button id="btn-send-chat" class="btn-send" title="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay-word-picker" style="display:none;">
+    <div class="overlay-card word-picker-card">
+      <h2 class="overlay-title">Choose a Word</h2>
+      <p class="overlay-subtitle">You are the drawer! Pick a word to draw.</p>
+      <div class="word-choices" id="word-choices">
+        <button class="word-btn">loading...</button>
+        <button class="word-btn">loading...</button>
+        <button class="word-btn">loading...</button>
+      </div>
+      <div class="word-timer-bar">
+        <div class="word-timer-fill" id="word-timer-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay-round-end" style="display:none;">
+    <div class="overlay-card round-end-card">
+      <h2 class="overlay-title">Round Over!</h2>
+      <p class="overlay-subtitle">The word was: <strong id="round-end-word">---</strong></p>
+      <div class="round-scores" id="round-end-scores">
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay-game-over" style="display:none;">
+    <div class="overlay-card game-over-card">
+      <h2 class="overlay-title">🏆 Game Over!</h2>
+      <div class="final-podium" id="final-podium">
+      </div>
+      <div class="final-scores" id="final-scores">
+      </div>
+      <button id="btn-play-again" class="btn btn-primary btn-lg">Play Again</button>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <script src="js/socket.js"></script>
+  <script src="js/canvas.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/lobby.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
