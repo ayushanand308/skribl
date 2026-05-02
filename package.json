@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server/dist/index.js",
-    "dev:server": "nodemon server/src/index.ts",
+    "dev:server": "nodemon",
     "dev:client": "npx -y http-server client -p 3001",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"

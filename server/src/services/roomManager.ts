@@ -2,6 +2,7 @@ import { gameRoom } from "../game/gameRoom";
 
 class RoomManager{
     private map: Map<string, gameRoom> = new Map(); 
+    private socketMap : Map<string, string> = new Map();
 
     createRoom(roomCode: string, hostId: string) {
         let newRoom = new gameRoom(5, roomCode, hostId);
@@ -15,6 +16,14 @@ class RoomManager{
 
     destroyRoom(roomCode : string){
         this.map.delete(roomCode);
+    }
+
+    addSocketToMap(socketId: string ,roomCode:string){
+        this.socketMap.set(socketId, roomCode);
+    }
+
+    getRoomCodeFromSocket(socketId: string): string | undefined {
+        return this.socketMap.get(socketId);
     }
 }
 

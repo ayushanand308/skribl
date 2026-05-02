@@ -33,7 +33,9 @@ const transitions : Record<gameState, Partial<Record<events, gameState>>> = {
         GUESS_TIMER_EXPIRED : "TURN_END",
         ALL_GUESSED : "TURN_END",
         ALL_PLAYERS_LEFT : "GAME_END",
-        RESTART : "LOBBY"
+        RESTART : "LOBBY",
+        NEXT_TURN: "PICK_WORD",
+        ALL_ROUNDS_END: "GAME_END"
     },
     TURN_END : {
         NEXT_TURN : "PICK_WORD",
@@ -50,9 +52,11 @@ function dispatch(currentState : gameState , event : events) : gameState {
     const nextState = transitions[currentState][event];
     
     if(!nextState){ 
+        console.error(`[StateMachine] INVALID transition: ${currentState} + ${event}`);
         throw new Error(`Not a valid transition for ${currentState} and ${event}`);
     }
 
+    console.log(`[StateMachine] ${currentState} --(${event})--> ${nextState}`);
     return nextState;
 }
 
@@ -68,6 +72,7 @@ export class GameStateMachine {
     }
 
     dispatch(event : events) : gameState{
+        const prev = this.currentState;
         this.currentState = dispatch(this.currentState, event);
         return this.currentState;
     }

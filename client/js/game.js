@@ -16,6 +16,7 @@ const GameModule = (() => {
         SocketClient.on('round-end', _onRoundEnd);
         SocketClient.on('game:over', _onGameOver);
         SocketClient.on('game:player-guessed', _onPlayerGuessed);
+        SocketClient.on('player-left', _onPlayerLeft);
 
         document.getElementById('btn-play-again').addEventListener('click', _playAgain);
     }
@@ -115,6 +116,13 @@ const GameModule = (() => {
         _renderSidebar();
     }
 
+    function _onPlayerLeft(data) {
+        const p = players.find((pl) => pl.id === data.playerId);
+        players = players.filter((pl) => pl.id !== data.playerId);
+        _renderSidebar();
+        if (p) ChatModule.addSystemMessage(`${p.name} left the game.`);
+    }
+
     function _onRoundEnd(data) {
         _stopTimer();
         isDrawer = false;
@@ -166,7 +174,21 @@ const GameModule = (() => {
         _stopTimer();
         isDrawer = false;
 
-        const sorted = (data.finalScores || []).sort((a, b) => b.totalScore - a.totalScore);
+        console.log('[Game] _onGameOver — data:', data);
+
+        // Backend sends { finalScores: [{id, score}] } — enrich from local players
+        const rawScores = data.finalScores || [];
+        const enriched = rawScores.map((s) => {
+            const p = players.find((pl) => pl.id === (s.playerId || s.id));
+            return {
+                id: s.playerId || s.id,
+                playerName: s.playerName || (p ? p.name : '???'),
+                avatar: s.avatar || (p ? p.avatar : '😀'),
+                totalScore: s.totalScore != null ? s.totalScore : (s.score || 0),
+            };
+        });
+
+        const sorted = enriched.sort((a, b) => b.totalScore - a.totalScore);
 
         const podiumContainer = document.getElementById('final-podium');
         const podiumOrder = [1, 0, 2];
@@ -178,7 +200,7 @@ const GameModule = (() => {
                 const placeLabel = ['1st', '2nd', '3rd'][idx];
                 return `
           <div class="podium-item podium-${placeLabel}">
-            <span class="podium-avatar">${p.avatar || '😀'}</span>
+            <span class="podium-avatar">${p.avatar}</span>
             <span class="podium-name">${_escapeHtml(p.playerName)}</span>
             <span class="podium-score">${p.totalScore}</span>
             <div class="podium-bar">${placeLabel}</div>
@@ -191,7 +213,7 @@ const GameModule = (() => {
         scoresContainer.innerHTML = sorted
             .map((s, i) => `
         <div class="round-score-row">
-          <span class="rs-avatar">${s.avatar || '😀'}</span>
+          <span class="rs-avatar">${s.avatar}</span>
           <span class="rs-name">#${i + 1} ${_escapeHtml(s.playerName)}</span>
           <span class="rs-delta positive">${s.totalScore}</span>
         </div>

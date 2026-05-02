@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { handleRoom } from "./socket/handlers/roomHandler";
 import { handleChat } from "./socket/handlers/chatHandler";
 import { handleGame } from "./socket/handlers/gameHandler";
+import RoomManager  from "./services/roomManager";
 
 const app = express();
 
@@ -30,6 +31,26 @@ io.on("connection", (socket) => {
   console.log(`[Socket] Client connected: ${socket.id}`);
   
   socket.on("disconnect", () => {
+    const roomCode : string | undefined = RoomManager.getRoomCodeFromSocket(socket.id)
+    let room ; 
+    if(roomCode){
+      room = RoomManager.getRoom(roomCode);
+    }
+    
+    if (room && roomCode) {
+        const playerId = room.getPlayerId(socket.id);
+        const isHost = playerId === room.hostId;
+        room.removePlayer(socket.id);
+        socket.leave(roomCode);
+        socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
+        if(isHost){
+            io.to(roomCode).emit("game-over", { reason: "host_left" });
+            RoomManager.destroyRoom(roomCode);
+        }
+        if(room.isEmpty()){
+            RoomManager.destroyRoom(roomCode);
+        }
+    }
     console.log(`[Socket] Client disconnected: ${socket.id}`);
   });
 

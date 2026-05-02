@@ -59,6 +59,7 @@ export function handleRoom(socket: Socket , io : Server ) {
 
         socket.join(roomCode);
         socket.to(roomCode).emit("player-joined", { player: { id, socketId: socket.id, name: username, score: 0 } });
+        RoomManager.addSocketToMap(socket.id , roomCode);
         socket.emit("room-joined", { 
             roomCode, 
             players: room.players, 
@@ -73,9 +74,15 @@ export function handleRoom(socket: Socket , io : Server ) {
         const room = RoomManager.getRoom(roomCode);
         
         if (room) {
+            const playerId = room.getPlayerId(socket.id);
+            const isHost = playerId === room.hostId;
             room.removePlayer(socket.id);
             socket.leave(roomCode);
-            socket.to(roomCode).emit("player-left", { playerId: socket.id });
+            socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
+            if(isHost){
+                io.to(roomCode).emit("game-over", { reason: "host_left" });
+                RoomManager.destroyRoom(roomCode);
+            }
             if(room.isEmpty()){
                 RoomManager.destroyRoom(roomCode);
             }

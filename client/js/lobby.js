@@ -154,7 +154,7 @@ const LobbyModule = (() => {
     }
 
     function _leaveRoom() {
-        SocketClient.emit('room:leave', {});
+        SocketClient.emit('room-leave', { roomCode });
         App.showScreen('home');
         players = [];
     }

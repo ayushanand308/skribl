@@ -11,6 +11,8 @@ export class gameRoom{
     drawer: player | null = null;
     currentPlayer: number = 0;
     maxRounds: number;
+    drawTime: number;
+    maxPlayers: number;
     roomCode: string;
     hostId: string;
     roundStartTime: number = 0;
@@ -40,10 +42,11 @@ export class gameRoom{
         this.timer = null;
         this.currentRound = 1;
         this.maxRounds = maxRounds;
+        this.drawTime = 60;
+        this.maxPlayers = 8;
         this.roomCode = roomCode;
         this.hostId = hostId;
         this.currentPlayer = 0;
-        this.roomCode = roomCode
         this.roundStartTime = 0;
         this.correctGuessers = new Set<string>();
         this.turnTotalScore = 0;
@@ -60,6 +63,11 @@ export class gameRoom{
         this.players =  this.players.filter((p)=>p.socketId!==socketId);
     }
 
+    getPlayerId(socketId: string){
+        const player = this.players.find((p)=>p.socketId === socketId);
+        return player?.id; 
+    }
+
     isEmpty(){
         return this.players.length === 0;
     }
@@ -68,7 +76,7 @@ export class gameRoom{
         this.roundStartTime = Date.now();
         this.timer = setTimeout(()=>{
             this.endTurn();
-        },60000);
+        }, this.drawTime * 1000);
     }
 
     endRoundTimer(){
@@ -107,15 +115,25 @@ export class gameRoom{
         this.word= word;
     }
 
-    startGame(){
+    startGame(settings?: {rounds?: number, drawTime?: number, maxPlayers?: number}){
+        console.log(`[GameRoom:${this.roomCode}] startGame — state: ${this.machine.getState()}, players: ${this.players.length}, settings:`, settings);
         if(this.machine.getState()!=='LOBBY' || this.players.length<2){
-            console.log(this.machine.getState(), "STATE");
-            console.log(this.players.length, "PLAYERS");
+            console.error(`[GameRoom:${this.roomCode}] Cannot start — state: ${this.machine.getState()}, players: ${this.players.length}`);
             throw new Error("can't start an already started game");
         }
+
+        if(settings){
+            if(settings.rounds) this.maxRounds = settings.rounds;
+            if(settings.drawTime) this.drawTime = settings.drawTime;
+            if(settings.maxPlayers) this.maxPlayers = settings.maxPlayers;
+        }
+
+        console.log(`[GameRoom:${this.roomCode}] Config — maxRounds: ${this.maxRounds}, drawTime: ${this.drawTime}s, maxPlayers: ${this.maxPlayers}`);
+
         this.machine.dispatch('GAME_START');
         const turn = this.currentPlayer%this.players.length
         this.drawer = this.players[turn];  
+        console.log(`[GameRoom:${this.roomCode}] Drawer: ${this.drawer?.name} (${this.drawer?.id})`);
 
     }
 
@@ -128,8 +146,9 @@ export class gameRoom{
         if(turn === 0 && this.currentPlayer>0){
             this.currentRound++;
         }
+        console.log(`[GameRoom:${this.roomCode}] startTurn — round: ${this.currentRound}/${this.maxRounds}, playerIdx: ${this.currentPlayer}, drawer: ${this.drawer?.name}, state: ${this.machine.getState()}`);
 
-        if(this.currentRound>=this.maxRounds){
+        if(this.currentRound>this.maxRounds){
             this.machine.dispatch('ALL_ROUNDS_END')
             if(this.onGameOver){
                 const scores = this.players.map ((p)=>{
@@ -139,6 +158,7 @@ export class gameRoom{
             }
             return;
         }
+        this.machine.dispatch('NEXT_TURN')
 
         if(this.onTurnStart){
             this.onTurnStart(this.drawer)
@@ -147,9 +167,7 @@ export class gameRoom{
     }
 
     endTurn(){
-        //we have to end the timer no matter if 60 seconds have passed or not 
-        //since this function will only be called when the timer expires or all players have guessed the word
-        //we have to clear the timer
+        console.log(`[GameRoom:${this.roomCode}] endTurn — state: ${this.machine.getState()}, word: ${this.word}, round: ${this.currentRound}/${this.maxRounds}`);
         this.endRoundTimer();
         this.currentPlayer++;
 
