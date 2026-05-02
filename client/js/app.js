@@ -1,5 +1,5 @@
 const App = (() => {
-    const AVATARS = ['😀', '😎', '🤩', '🥳', '😺', '🐶', '🦊', '🐸', '🐵', '🦁', '🐼', '🐧', '🦄', '🐲', '🎃', '👻'];
+    const AVATARS = ['�', '�️', '🎮', '💀', '🤖', '�', '⚔️', '�', '🧙', '�', '🌋', '⚡', '🔥', '�', '🎃', '�️'];
     let selectedAvatar = AVATARS[0];
     let currentScreen = 'home';
 
@@ -23,23 +23,23 @@ const App = (() => {
         });
 
         SocketClient.on('_connected', () => {
-            toast('Connected to server!', 'success');
+            toast('>> CONNECTED! <<', 'success');
         });
         SocketClient.on('_disconnected', (data) => {
-            toast(`Disconnected: ${data.reason}`, 'warning');
+            toast(`DISCONNECTED: ${data.reason}`, 'warning');
         });
         SocketClient.on('_reconnecting', (data) => {
-            toast(`Reconnecting... (attempt ${data.attempt})`, 'info');
+            toast(`RECONNECTING... (${data.attempt})`, 'info');
         });
         SocketClient.on('_reconnected', () => {
-            toast('Reconnected!', 'success');
+            toast('>> RECONNECTED! <<', 'success');
         });
         SocketClient.on('_error', (data) => {
-            toast(`Connection error: ${data.message}`, 'error');
+            toast(`ERROR: ${data.message}`, 'error');
         });
 
         SocketClient.on('room:error', (data) => {
-            toast(data.message || 'Something went wrong', 'error');
+            toast(`ERROR: ${data.message || 'SOMETHING WENT WRONG'}`, 'error');
         });
 
         SocketClient.on('room-joined', (data) => {
@@ -96,7 +96,7 @@ const App = (() => {
         const codeInput = document.getElementById('room-code-input');
         const code = codeInput.value.trim().toUpperCase();
         if (!code || code.length < 4) {
-            toast('Please enter a valid room code', 'warning');
+            toast('ENTER A VALID ROOM CODE', 'warning');
             codeInput.focus();
             return;
         }
@@ -113,12 +113,12 @@ const App = (() => {
         const input = document.getElementById('username-input');
         const name = input.value.trim();
         if (!name) {
-            toast('Please enter your name!', 'warning');
+            toast('ENTER YOUR NAME!', 'warning');
             input.focus();
             return null;
         }
         if (name.length < 2) {
-            toast('Name must be at least 2 characters', 'warning');
+            toast('NAME MUST BE 2+ CHARS', 'warning');
             input.focus();
             return null;
         }
@@ -155,6 +155,56 @@ const App = (() => {
     } else {
         init();
     }
+
+    // Retro floating pixel particles
+    (function initParticles() {
+        const canvas = document.createElement('canvas');
+        canvas.id = 'retro-particles';
+        canvas.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9998;opacity:0.4;';
+        document.body.appendChild(canvas);
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        const COLORS = ['#ff00ff', '#00d4ff', '#ffff00', '#00ff41', '#ff6600', '#b400ff', '#ff0040'];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        for (let i = 0; i < 40; i++) {
+            particles.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 3 + 1,
+                speedY: -(Math.random() * 0.5 + 0.1),
+                speedX: (Math.random() - 0.5) * 0.3,
+                color: COLORS[Math.floor(Math.random() * COLORS.length)],
+                alpha: Math.random() * 0.5 + 0.3,
+            });
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach((p) => {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.alpha;
+                ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
+                p.y += p.speedY;
+                p.x += p.speedX;
+                if (p.y < -10) {
+                    p.y = canvas.height + 10;
+                    p.x = Math.random() * canvas.width;
+                }
+                if (p.x < -10) p.x = canvas.width + 10;
+                if (p.x > canvas.width + 10) p.x = -10;
+            });
+            ctx.globalAlpha = 1;
+            requestAnimationFrame(animate);
+        }
+        animate();
+    })();
 
     return { showScreen, toast };
 })();

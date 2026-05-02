@@ -52,7 +52,7 @@ const LobbyModule = (() => {
         players.push(data.player);
         _renderPlayers();
         _updateStartButton();
-        App.toast(`${data.player.name} joined!`, 'info');
+        App.toast(`>> ${data.player.name} JOINED! <<`, 'info');
     }
 
     function _onPlayerLeft(data) {
@@ -60,7 +60,7 @@ const LobbyModule = (() => {
         players = players.filter((pl) => pl.id !== data.playerId);
         _renderPlayers();
         _updateStartButton();
-        if (p) App.toast(`${p.name} left.`, 'info');
+        if (p) App.toast(`>> ${p.name} LEFT <<`, 'info');
     }
 
     function _onSettingsUpdated(data) {
@@ -119,11 +119,11 @@ const LobbyModule = (() => {
         const btn = document.getElementById('btn-start-game');
         btn.disabled = !isHost || players.length < 2;
         if (!isHost) {
-            btn.textContent = 'Waiting for host to start...';
+            btn.textContent = 'WAITING FOR HOST...';
         } else if (players.length < 2) {
-            btn.innerHTML = `<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Need at least 2 players`;
+            btn.innerHTML = `<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> NEED 2+ PLAYERS`;
         } else {
-            btn.innerHTML = `<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start Game`;
+            btn.innerHTML = `<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> [START GAME]`;
         }
     }
 
@@ -147,9 +147,9 @@ const LobbyModule = (() => {
 
     function _copyCode() {
         navigator.clipboard.writeText(roomCode).then(() => {
-            App.toast('Room code copied!', 'success');
+            App.toast('ROOM CODE COPIED!', 'success');
         }).catch(() => {
-            App.toast(`Room code: ${roomCode}`, 'info');
+            App.toast(`CODE: ${roomCode}`, 'info');
         });
     }
 

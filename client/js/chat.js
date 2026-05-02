@@ -35,10 +35,10 @@ const ChatModule = (() => {
     function _onChatMessage(data) {
         switch (data.type) {
             case 'correct':
-                _addMessage(`${data.playerName} guessed the word! 🎉`, 'correct');
+                _addMessage(`>> ${data.playerName} GUESSED THE WORD! <<`, 'correct');
                 break;
             case 'close':
-                _addMessage("You're close!", 'close-guess');
+                _addMessage(">> YOU'RE CLOSE! <<", 'close-guess');
                 break;
             case 'system':
                 _addMessage(data.text, 'system');
@@ -50,7 +50,7 @@ const ChatModule = (() => {
     }
 
     function _onPlayerGuessed(data) {
-        _addMessage(`${data.playerName} guessed the word! (+${data.score})`, 'correct');
+        _addMessage(`>> ${data.playerName} GUESSED IT! (+${data.score}) <<`, 'correct');
     }
 
     function _addPlayerMessage(name, text) {
@@ -100,7 +100,7 @@ const ChatModule = (() => {
 
     function clear() {
         chatMessages.innerHTML = '';
-        _addMessage('Welcome to Skribl! 🎨', 'system');
+        _addMessage('> WELCOME TO SKRIBL! <', 'system');
     }
 
     return { init, addSystemMessage, disable, enable, clear };

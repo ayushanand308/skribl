@@ -8,6 +8,7 @@ const GameModule = (() => {
     let isDrawer = false;
     let players = [];
     let currentDrawerId = null;
+    let chosenWord = null;
 
     function init() {
         SocketClient.on('choose-word', _onPickWord);
@@ -32,6 +33,7 @@ const GameModule = (() => {
         data.words.forEach((word, i) => {
             buttons[i].textContent = word;
             buttons[i].onclick = () => {
+                chosenWord = word;
                 SocketClient.emit('word-choosen', { choosenWord: word, roomCode: LobbyModule.getRoomCode() });
                 overlay.style.display = 'none';
                 _clearWordPickerTimer();
@@ -48,6 +50,7 @@ const GameModule = (() => {
             const pct = Math.max(0, 100 - (elapsed / totalTime) * 100);
             if (elapsed >= totalTime) {
                 _clearWordPickerTimer();
+                chosenWord = data.words[0];
                 SocketClient.emit('word-choosen', { choosenWord: data.words[0], roomCode: LobbyModule.getRoomCode() });
                 overlay.style.display = 'none';
             }
@@ -81,13 +84,17 @@ const GameModule = (() => {
 
         if (isDrawer) {
             CanvasModule.enableDrawing();
-            ChatModule.disable("You're drawing! No chatting.");
-            ChatModule.addSystemMessage("It's your turn to draw!");
+            ChatModule.disable("YOU'RE DRAWING! NO CHAT.");
+            ChatModule.addSystemMessage(">> IT'S YOUR TURN TO DRAW! <<");
+            if (chosenWord) {
+                _renderWordHint(chosenWord.split('').map(ch => ch === ' ' ? ' ' : ch).join(''), true);
+                ChatModule.addSystemMessage(`>> YOUR WORD: ${chosenWord.toUpperCase()} <<`);
+            }
         } else {
             CanvasModule.disableDrawing();
             ChatModule.enable('Type your guess...');
             const drawerName = _getPlayerName(data.drawerId);
-            ChatModule.addSystemMessage(`${drawerName} is drawing!`);
+            ChatModule.addSystemMessage(`>> ${drawerName} IS DRAWING! <<`);
         }
 
         _renderSidebar();
@@ -103,6 +110,7 @@ const GameModule = (() => {
 
 
     function _onHint(data) {
+        if (isDrawer && chosenWord) return;
         _renderWordHint(data.hint);
     }
 
@@ -120,12 +128,13 @@ const GameModule = (() => {
         const p = players.find((pl) => pl.id === data.playerId);
         players = players.filter((pl) => pl.id !== data.playerId);
         _renderSidebar();
-        if (p) ChatModule.addSystemMessage(`${p.name} left the game.`);
+        if (p) ChatModule.addSystemMessage(`>> ${p.name} LEFT THE GAME <<`);
     }
 
     function _onRoundEnd(data) {
         _stopTimer();
         isDrawer = false;
+        chosenWord = null;
         timeLeft = 0;
         _updateTimerDisplay();
 
@@ -173,6 +182,7 @@ const GameModule = (() => {
     function _onGameOver(data) {
         _stopTimer();
         isDrawer = false;
+        chosenWord = null;
 
         console.log('[Game] _onGameOver — data:', data);
 
@@ -225,19 +235,20 @@ const GameModule = (() => {
     }
 
 
-    function _renderWordHint(hint) {
+    function _renderWordHint(hint, isDrawerWord = false) {
         const container = document.getElementById('game-word-hint');
         if (!hint) {
             container.innerHTML = '';
             return;
         }
 
+        const charClass = isDrawerWord ? 'drawer-word' : 'revealed';
         container.innerHTML = hint
             .split('')
             .map((ch) => {
                 if (ch === ' ') return '<span class="hint-char space"></span>';
                 if (ch === '_') return '<span class="hint-char hidden">_</span>';
-                return `<span class="hint-char revealed">${ch}</span>`;
+                return `<span class="hint-char ${charClass}">${ch}</span>`;
             })
             .join('');
     }
