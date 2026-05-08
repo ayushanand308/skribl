@@ -9,6 +9,7 @@ const GameModule = (() => {
     let players = [];
     let currentDrawerId = null;
     let chosenWord = null;
+    let roundEndTimeout = null;
 
     function init() {
         SocketClient.on('choose-word', _onPickWord);
@@ -101,6 +102,7 @@ const GameModule = (() => {
 
         _startTimer(timeLeft);
 
+        if (roundEndTimeout) { clearTimeout(roundEndTimeout); roundEndTimeout = null; }
         document.getElementById('overlay-word-picker').style.display = 'none';
         document.getElementById('overlay-round-end').style.display = 'none';
         document.getElementById('overlay-game-over').style.display = 'none';
@@ -126,9 +128,16 @@ const GameModule = (() => {
 
     function _onPlayerLeft(data) {
         const p = players.find((pl) => pl.id === data.playerId);
+        const wasDrawer = data.playerId === currentDrawerId;
         players = players.filter((pl) => pl.id !== data.playerId);
         _renderSidebar();
         if (p) ChatModule.addSystemMessage(`>> ${p.name} LEFT THE GAME <<`);
+        if (wasDrawer) {
+            _stopTimer();
+            CanvasModule.disableDrawing();
+            _renderWordHint('');
+            ChatModule.disable('WAITING FOR NEXT TURN...');
+        }
     }
 
     function _onRoundEnd(data) {
@@ -173,8 +182,10 @@ const GameModule = (() => {
 
         document.getElementById('overlay-round-end').style.display = '';
 
-        setTimeout(() => {
+        if (roundEndTimeout) clearTimeout(roundEndTimeout);
+        roundEndTimeout = setTimeout(() => {
             document.getElementById('overlay-round-end').style.display = 'none';
+            roundEndTimeout = null;
         }, 5000);
     }
 

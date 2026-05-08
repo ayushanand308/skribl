@@ -60,7 +60,10 @@ export class gameRoom{
     }
 
     removePlayer(socketId : string){
+        console.log(this.players.length, " L1 ")
         this.players =  this.players.filter((p)=>p.socketId!==socketId);
+        console.log(this.players.length, " L2 ")
+
     }
 
     getPlayerId(socketId: string){
@@ -75,7 +78,7 @@ export class gameRoom{
     startRoundTimer(){
         this.roundStartTime = Date.now();
         this.timer = setTimeout(()=>{
-            this.endTurn();
+            this.endTurn(false);
         }, this.drawTime * 1000);
     }
 
@@ -166,10 +169,11 @@ export class gameRoom{
 
     }
 
-    endTurn(){
+    endTurn(shift?:boolean){
         console.log(`[GameRoom:${this.roomCode}] endTurn — state: ${this.machine.getState()}, word: ${this.word}, round: ${this.currentRound}/${this.maxRounds}`);
         this.endRoundTimer();
-        this.currentPlayer++;
+
+        shift?this.currentPlayer--:this.currentPlayer++;
 
         // Calculate and assign drawer score
         const numPotentialGuessers = this.players.length - 1;

@@ -77,6 +77,7 @@ export function handleRoom(socket: Socket , io : Server ) {
             const playerId = room.getPlayerId(socket.id);
             const isHost = playerId === room.hostId;
             room.removePlayer(socket.id);
+            room.endTurn(true)
             socket.leave(roomCode);
             socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
             if(isHost){

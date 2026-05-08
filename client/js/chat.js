@@ -33,19 +33,22 @@ const ChatModule = (() => {
     }
 
     function _onChatMessage(data) {
-        switch (data.type) {
-            case 'correct':
-                _addMessage(`>> ${data.playerName} GUESSED THE WORD! <<`, 'correct');
-                break;
-            case 'close':
+        const sender = data.sender || data.playerName || '';
+        const text = data.message || data.text || '';
+
+        if (sender === 'System') {
+            if (text.includes('guessed the word')) {
+                const playerName = text.replace(/ guessed the word!$/, '');
+                _addMessage(`>> ${playerName.toUpperCase()} GUESSED THE WORD! <<`, 'correct');
+            } else if (text.includes('is close') || text.includes('is close!')) {
                 _addMessage(">> YOU'RE CLOSE! <<", 'close-guess');
-                break;
-            case 'system':
-                _addMessage(data.text, 'system');
-                break;
-            default:
-                _addPlayerMessage(data.playerName, data.text);
-                break;
+            } else if (text.includes('is picking a word')) {
+                _addMessage(`>> ${text.toUpperCase()} <<`, 'system');
+            } else {
+                _addMessage(`>> ${text.toUpperCase()} <<`, 'system');
+            }
+        } else {
+            _addPlayerMessage(sender, text);
         }
     }
 
