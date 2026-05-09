@@ -104,8 +104,8 @@ body::after {
 
 .theme-toggle-wrapper {
   position: fixed;
-  top: 20px;
-  right: 20px;
+  bottom: 20px;
+  left: 20px;
   z-index: 10000;
 }
 
@@ -695,6 +695,7 @@ input { font-family: var(--font); outline: none; border: none; }
   background: var(--bg-secondary);
   border-right: var(--border-thick) solid var(--border-color);
   padding: 12px;
+  padding-bottom: 80px;
   overflow-y: auto;
   box-shadow: inset -4px 0 0 rgba(0,0,0,0.2);
 }

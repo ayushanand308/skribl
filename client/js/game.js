@@ -272,6 +272,7 @@ const GameModule = (() => {
             .map((p, i) => {
                 const isCurrentDrawer = p.id === currentDrawerId;
                 const hasGuessed = p.guessed;
+                const isMe = p.id === myPlayerId;
                 let classes = 'sidebar-player';
                 if (isCurrentDrawer) classes += ' drawing';
                 if (hasGuessed) classes += ' guessed';
@@ -281,7 +282,7 @@ const GameModule = (() => {
             ${isCurrentDrawer ? '<div class="drawing-indicator"></div>' : ''}
             <span class="rank">#${i + 1}</span>
             <span class="sp-avatar">${p.avatar || '😀'}</span>
-            <span class="sp-name">${_escapeHtml(p.name)}</span>
+            <span class="sp-name">${_escapeHtml(p.name)}${isMe ? ' (You)' : ''}</span>
             ${hasGuessed ? '<span class="guessed-check">✓</span>' : ''}
             <span class="sp-score">${p.score || 0}</span>
           </div>
