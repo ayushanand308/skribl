@@ -1,9 +1,10 @@
 const App = (() => {
-    const AVATARS = ['�', '�️', '🎮', '💀', '🤖', '�', '⚔️', '�', '🧙', '�', '🌋', '⚡', '🔥', '�', '🎃', '�️'];
+    const AVATARS = ['😀', '😎', '🎮', '💀', '🤖', '👽', '⚔️', '👻', '🧙', '🚀', '🌋', '⚡', '🔥', '⭐', '🎃', '👑'];
     let selectedAvatar = AVATARS[0];
     let currentScreen = 'home';
 
     function init() {
+        _initTheme();
         CanvasModule.init();
         ChatModule.init();
         LobbyModule.init();
@@ -11,6 +12,7 @@ const App = (() => {
 
         _renderAvatars();
 
+        document.getElementById('btn-theme-toggle').addEventListener('click', _toggleTheme);
         document.getElementById('btn-create-room').addEventListener('click', _createRoom);
         document.getElementById('btn-join-room').addEventListener('click', _joinRoom);
 
@@ -61,6 +63,18 @@ const App = (() => {
         console.log('[App] Initialized');
     }
 
+    function _initTheme() {
+        const savedTheme = localStorage.getItem('skribl_theme');
+        if (savedTheme === 'light') {
+            document.body.classList.add('light-mode');
+        }
+    }
+
+    function _toggleTheme() {
+        document.body.classList.toggle('light-mode');
+        const isLight = document.body.classList.contains('light-mode');
+        localStorage.setItem('skribl_theme', isLight ? 'light' : 'dark');
+    }
 
     function _renderAvatars() {
         const grid = document.getElementById('avatar-grid');
@@ -164,7 +178,12 @@ const App = (() => {
         document.body.appendChild(canvas);
         const ctx = canvas.getContext('2d');
         let particles = [];
-        const COLORS = ['#ff00ff', '#00d4ff', '#ffff00', '#00ff41', '#ff6600', '#b400ff', '#ff0040'];
+        const DARK_COLORS = ['#ff00ff', '#00d4ff', '#ffff00', '#00ff41', '#ff6600', '#b400ff', '#ff0040'];
+        const LIGHT_COLORS = ['#e600e6', '#009acd', '#e6e600', '#00cc33', '#e65c00', '#9900cc', '#e60039'];
+
+        function getColors() {
+            return document.body.classList.contains('light-mode') ? LIGHT_COLORS : DARK_COLORS;
+        }
 
         function resize() {
             canvas.width = window.innerWidth;
@@ -180,15 +199,16 @@ const App = (() => {
                 size: Math.random() * 3 + 1,
                 speedY: -(Math.random() * 0.5 + 0.1),
                 speedX: (Math.random() - 0.5) * 0.3,
-                color: COLORS[Math.floor(Math.random() * COLORS.length)],
+                colorIndex: Math.floor(Math.random() * DARK_COLORS.length),
                 alpha: Math.random() * 0.5 + 0.3,
             });
         }
 
         function animate() {
+            const currentColors = getColors();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             particles.forEach((p) => {
-                ctx.fillStyle = p.color;
+                ctx.fillStyle = currentColors[p.colorIndex];
                 ctx.globalAlpha = p.alpha;
                 ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
                 p.y += p.speedY;
