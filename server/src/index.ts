@@ -38,6 +38,7 @@ io.on("connection", (socket) => {
     }
     
     if (room && roomCode) {
+        RoomManager.removeSocketFromMap(socket.id);
         const playerId = room.getPlayerId(socket.id);
         const isHost = playerId === room.hostId;
         room.removePlayer(socket.id);

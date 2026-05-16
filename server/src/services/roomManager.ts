@@ -25,6 +25,10 @@ class RoomManager{
     getRoomCodeFromSocket(socketId: string): string | undefined {
         return this.socketMap.get(socketId);
     }
+
+    removeSocketFromMap(socketId: string) {
+        this.socketMap.delete(socketId);
+    }
 }
 
 export default new RoomManager();

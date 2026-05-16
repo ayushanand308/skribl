@@ -173,7 +173,13 @@ export class gameRoom{
         console.log(`[GameRoom:${this.roomCode}] endTurn — state: ${this.machine.getState()}, word: ${this.word}, round: ${this.currentRound}/${this.maxRounds}`);
         this.endRoundTimer();
 
-        shift?this.currentPlayer--:this.currentPlayer++;
+        if(shift){
+            if(this.currentRound!=1){
+                this.currentPlayer--;
+            }
+        }else{
+            this.currentPlayer++;
+        }
 
         // Calculate and assign drawer score
         const numPotentialGuessers = this.players.length - 1;

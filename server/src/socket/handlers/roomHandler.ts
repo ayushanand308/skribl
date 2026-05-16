@@ -18,6 +18,7 @@ export function handleRoom(socket: Socket , io : Server ) {
         });
 
         socket.join(roomCode);
+        RoomManager.addSocketToMap(socket.id, roomCode);
         socket.emit("room-joined", { 
             roomCode, 
             players: room.players, 
@@ -80,13 +81,14 @@ export function handleRoom(socket: Socket , io : Server ) {
             room.endTurn(true)
             socket.leave(roomCode);
             socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
-            if(isHost){
+            if(isHost){            
                 io.to(roomCode).emit("game-over", { reason: "host_left" });
                 RoomManager.destroyRoom(roomCode);
             }
             if(room.isEmpty()){
                 RoomManager.destroyRoom(roomCode);
             }
+            RoomManager.removeSocketFromMap(socket.id);
         }
     });
 }
