@@ -23,4 +23,6 @@ Thumbs.db
 package-lock.json
 
 #markdown files
-*.md
+readme1.md
+phase1_test_checklist.md
+implementation_plan.md
