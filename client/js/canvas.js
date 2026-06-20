@@ -42,6 +42,7 @@ const CanvasModule = (() => {
         SocketClient.on('stroke-draw', _onRemoteStroke);
         SocketClient.on('stroke-clear', _onRemoteClear);
         SocketClient.on('stroke-fill', _onRemoteFill);
+        SocketClient.on('stroke-undo', _onRemoteUndo);
 
         window.addEventListener('resize', _resizeCanvas);
     }
@@ -172,7 +173,14 @@ const CanvasModule = (() => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        strokeHistory.forEach((stroke) => _replayStroke(stroke));
+        strokeHistory.forEach((stroke) => {
+            if (stroke.type === 'fill') {
+                ctx.fillStyle = stroke.color;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            } else {
+                _replayStroke(stroke);
+            }
+        });
     }
 
 
@@ -219,19 +227,22 @@ const CanvasModule = (() => {
     }
 
     function _undo() {
+        if (!isDrawer) return;
         if (strokeHistory.length === 0) return;
         strokeHistory.pop();
         _redrawAll();
-        SocketClient.emit('stroke', { roomCode: LobbyModule.getRoomCode(), strokeType: 'clear' });
+        SocketClient.emit('stroke', { roomCode: LobbyModule.getRoomCode(), strokeType: 'undo' });
     }
 
     function _clearCanvas() {
+        if (!isDrawer) return;
         strokeHistory = [];
         _redrawAll();
         SocketClient.emit('stroke', { roomCode: LobbyModule.getRoomCode(), strokeType: 'clear' });
     }
 
     function _fill() {
+        if (!isDrawer) return;
         const fillColor = currentColor;
         ctx.fillStyle = fillColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -258,11 +269,17 @@ const CanvasModule = (() => {
         _redrawAll();
     }
 
+    function _onRemoteUndo() {
+        if (strokeHistory.length === 0) return;
+        strokeHistory.pop();
+        _redrawAll();
+    }
+
     function _onRemoteFill(data) {
         const fillStroke = { type: 'fill', color: data.color };
         strokeHistory.push(fillStroke);
-        ctx.fillStyle = data.color;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Redraw all to keep compositing correct (fills can be painted over by subsequent strokes)
+        _redrawAll();
     }
 
     function enableDrawing() {

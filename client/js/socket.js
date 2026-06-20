@@ -55,6 +55,7 @@ const SocketClient = (() => {
             'stroke-draw',
             'stroke-clear',
             'stroke-fill',
+            'stroke-undo',
             'chat-message',
         ];
 

@@ -65,7 +65,9 @@ const App = (() => {
 
     function _initTheme() {
         const savedTheme = localStorage.getItem('skribl_theme');
-        if (savedTheme === 'light') {
+        if (savedTheme === 'dark') {
+            document.body.classList.remove('light-mode');
+        } else {
             document.body.classList.add('light-mode');
         }
     }

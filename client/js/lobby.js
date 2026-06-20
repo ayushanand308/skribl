@@ -4,6 +4,7 @@ const LobbyModule = (() => {
     let settings = { rounds: 3, drawTime: 60, maxPlayers: 8 };
     let isHost = false;
     let myPlayerId = null;
+    let hostSocketId = null;
 
     function init() {
         document.querySelectorAll('.setting-options').forEach((group) => {
@@ -34,6 +35,7 @@ const LobbyModule = (() => {
         players = data.players;
         settings = data.settings || settings;
         isHost = data.hostId === SocketClient.getSocketId();
+        hostSocketId = data.hostId;
         const me = data.players.find(p => p.socketId === SocketClient.getSocketId());
         myPlayerId = me ? me.id : SocketClient.getSocketId();
 
@@ -70,6 +72,7 @@ const LobbyModule = (() => {
 
     function _onHostChanged(data) {
         isHost = data.hostId === SocketClient.getSocketId();
+        hostSocketId = data.hostId;
         _renderPlayers();
         _renderSettings();
         _updateStartButton();
@@ -84,12 +87,12 @@ const LobbyModule = (() => {
         container.innerHTML = players
             .map((p, i) => {
                 const isMe = p.id === myPlayerId;
-                const isPlayerHost = i === 0;
+                const isPlayerHost = p.socketId === hostSocketId;
                 return `
           <div class="player-card" style="animation-delay:${i * 0.05}s" data-player-id="${p.id}">
             <div class="player-avatar">${p.avatar || '😀'}</div>
             <div class="player-name">${_escapeHtml(p.name)}${isMe ? ' (You)' : ''}</div>
-            ${p.isHost ? '<span class="host-badge">Host</span>' : ''}
+            ${isPlayerHost ? '<span class="host-badge">Host</span>' : ''}
             ${isHost && !isMe ? `<button class="kick-btn" onclick="LobbyModule.kickPlayer('${p.id}')" title="Kick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}
           </div>
         `;

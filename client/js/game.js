@@ -49,6 +49,7 @@ const GameModule = (() => {
         _wordPickerTimerId = setInterval(() => {
             elapsed += 0.1;
             const pct = Math.max(0, 100 - (elapsed / totalTime) * 100);
+            timerFill.style.width = pct + '%';
             if (elapsed >= totalTime) {
                 _clearWordPickerTimer();
                 chosenWord = data.words[0];

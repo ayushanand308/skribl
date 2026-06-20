@@ -2,6 +2,7 @@ import { Socket , Server } from "socket.io";
 import RoomManager  from "../../services/roomManager";
 import { player } from "../../game/player";
 import { WordBank } from "../../game/wordBank";
+import roomManager from "../../services/roomManager";
 
 export function handleRoom(socket: Socket , io : Server ) {
     socket.on("room-create", (payload) => {
@@ -32,11 +33,11 @@ export function handleRoom(socket: Socket , io : Server ) {
         
         room.onTurnStart = (player: player) => {
             const words = WordBank.getRandomWords(3);
-            io.to(player.socketId).emit("choose-word", { words });
+            io.to(player?.socketId).emit("choose-word", { words });
             
             socket.to(roomCode).emit("chat-message", {
                 sender: "System",
-                message: `${player.name} is picking a word...`
+                message: `${player?.name} is picking a word...`
             });
         };
 
@@ -75,8 +76,8 @@ export function handleRoom(socket: Socket , io : Server ) {
         const room = RoomManager.getRoom(roomCode);
         
         if (room) {
-            const playerId = room.getPlayerId(socket.id);
-            const isHost = playerId === room.hostId;
+            const playerId = room.getPlayerId(socket.id); // frontend id 
+            const isHost = playerId === room.getPlayerId(room.hostId); //backend socket id
             room.removePlayer(socket.id);
             room.endTurn(true)
             socket.leave(roomCode);
@@ -90,5 +91,20 @@ export function handleRoom(socket: Socket , io : Server ) {
             }
             RoomManager.removeSocketFromMap(socket.id);
         }
+    });
+
+    socket.on("room:update-settings", (payload) =>{
+        const roomCode = [...socket.rooms].find((r) => r != socket.id)
+        if (!roomCode) return;
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.hostId !== socket.id) return;
+
+        if (payload.rounds != null) room.maxRounds = payload.rounds;
+        if (payload.drawTime != null) room.drawTime = payload.drawTime;
+        if (payload.maxPlayers != null) room.maxPlayers = payload.maxPlayers;
+
+        io.to(roomCode).emit("room:settings-updated", {
+            settings: { rounds: room.maxRounds, drawTime: room.drawTime, maxPlayers: room.maxPlayers }
+        });
     });
 }

@@ -7,7 +7,14 @@ export function handleChat(socket: Socket , io : Server) {
     socket.on("chat-message",(payload)=>{
         const {message , roomCode , userId } = payload;
         const room = RoomManager.getRoom(roomCode);
-        if (!room || !room.word) return;
+        if (!room) return;
+
+        if(!room.word){
+            const sender = room.players.find((p) => p.id === userId);
+            const username = sender?.name || 'Unknown'
+            io.to(roomCode).emit("chat-message", { sender: username, message });
+            return;
+        }
 
         const currentDrawer = room?.drawer;
         const drawerId = currentDrawer?.id;

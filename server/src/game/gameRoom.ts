@@ -141,6 +141,13 @@ export class gameRoom{
     }
 
     startTurn(){
+        if(this.players.length===0){
+            if(this.timer){
+                clearTimeout(this.timer);
+                this.timer=null;
+            }
+            return;
+        }
         this.turnTotalScore = 0;
         const turn = this.currentPlayer%this.players.length
 
@@ -170,6 +177,13 @@ export class gameRoom{
     }
 
     endTurn(shift?:boolean){
+        if(this.players.length===0){
+            if(this.timer){
+                clearTimeout(this.timer);
+                this.timer=null;
+            }
+            return;
+        }
         console.log(`[GameRoom:${this.roomCode}] endTurn — state: ${this.machine.getState()}, word: ${this.word}, round: ${this.currentRound}/${this.maxRounds}`);
         this.endRoundTimer();
 
