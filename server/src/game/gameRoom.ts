@@ -1,4 +1,4 @@
-import { error } from "node:console";
+
 import { GameStateMachine } from "./gameStateMachine";
 import { player } from "./player";
 

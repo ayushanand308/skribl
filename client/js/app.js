@@ -47,6 +47,7 @@ const App = (() => {
         SocketClient.on('room-joined', (data) => {
             if (data.gameState === 'LOBBY' || !data.gameState) {
                 showScreen('lobby');
+                ChatModule.clear();
             }
         });
 
@@ -56,6 +57,7 @@ const App = (() => {
 
         SocketClient.on('game:back-to-lobby', () => {
             showScreen('lobby');
+            ChatModule.clear();
         });
 
         SocketClient.connect();

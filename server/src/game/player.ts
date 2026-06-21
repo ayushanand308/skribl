@@ -3,5 +3,5 @@ export interface player {
     socketId : string; 
     name : string;
     score : number;
+    avatar?: string;
 }
-

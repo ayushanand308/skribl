@@ -38,6 +38,12 @@ export function handleChat(socket: Socket , io : Server) {
                 message: `${username} guessed the word!`
             });
 
+            io.to(roomCode).emit("game:player-guessed", {
+                playerId: userId,
+                playerName: username,
+                score: score
+            });
+
             if (room.allGuessed()) {
                 room.endTurn();
             }

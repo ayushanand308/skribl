@@ -52,6 +52,7 @@ const SocketClient = (() => {
             'round-end',
             'game:over',
             'game:player-guessed',
+            'game:back-to-lobby',
             'stroke-draw',
             'stroke-clear',
             'stroke-fill',

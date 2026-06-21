@@ -2,11 +2,11 @@ import { Socket , Server } from "socket.io";
 import RoomManager  from "../../services/roomManager";
 import { player } from "../../game/player";
 import { WordBank } from "../../game/wordBank";
-import roomManager from "../../services/roomManager";
+
 
 export function handleRoom(socket: Socket , io : Server ) {
     socket.on("room-create", (payload) => {
-        const { username, id } = payload;
+        const { username, id, avatar } = payload;
         const roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
 
         const room = RoomManager.createRoom(roomCode, socket.id);
@@ -15,7 +15,8 @@ export function handleRoom(socket: Socket , io : Server ) {
             id,
             socketId: socket.id,
             name: username,
-            score: 0
+            score: 0,
+            avatar
         });
 
         socket.join(roomCode);
@@ -47,25 +48,33 @@ export function handleRoom(socket: Socket , io : Server ) {
     });
 
     socket.on("room-join", (payload) => {
-        const { username, roomCode, id } = payload;
+        const { username, roomCode, id, avatar } = payload;
         const room = RoomManager.getRoom(roomCode);
 
-        if(!room) {return};
-        
-        room.addPlayer({
+        let errorMsg = null;
+        if (!room) errorMsg = "ROOM NOT FOUND";
+        else if (room.machine.getState() !== 'LOBBY') errorMsg = "GAME ALREADY STARTED";
+        else if (room.players.length >= room.maxPlayers) errorMsg = "ROOM CAPACITY FULL";
+
+        if (errorMsg) {
+            socket.emit("room:error", { message: errorMsg });
+            return;
+        }
+        room?.addPlayer({
             id,
             socketId: socket.id,
             name: username,
-            score: 0
+            score: 0,
+            avatar
         });
 
         socket.join(roomCode);
-        socket.to(roomCode).emit("player-joined", { player: { id, socketId: socket.id, name: username, score: 0 } });
+        socket.to(roomCode).emit("player-joined", { player: { id, socketId: socket.id, name: username, score: 0, avatar } });
         RoomManager.addSocketToMap(socket.id , roomCode);
         socket.emit("room-joined", { 
             roomCode, 
-            players: room.players, 
-            hostId: room.hostId, 
+            players: room?.players, 
+            hostId: room?.hostId, 
             gameState: 'LOBBY', 
             settings: { rounds: 3, drawTime: 60, maxPlayers: 8 } 
         });
@@ -96,7 +105,7 @@ export function handleRoom(socket: Socket , io : Server ) {
     socket.on("room:update-settings", (payload) =>{
         const roomCode = [...socket.rooms].find((r) => r != socket.id)
         if (!roomCode) return;
-        const room = roomManager.getRoom(roomCode);
+        const room = RoomManager.getRoom(roomCode);
         if (!room || room.hostId !== socket.id) return;
 
         if (payload.rounds != null) room.maxRounds = payload.rounds;
