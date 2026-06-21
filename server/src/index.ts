@@ -43,7 +43,9 @@ io.on("connection", (socket) => {
         const isHost = playerId === room.getPlayerId(room.hostId); //backend socket id
 
         room.removePlayer(socket.id);
-        room.endTurn(true);
+        if(room.players.length < 2 || playerId === room.drawer?.socketId){
+          room.endTurn(true);
+        }
         socket.leave(roomCode);
         socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
         if(isHost){

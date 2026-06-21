@@ -5,7 +5,7 @@ class RoomManager{
     private socketMap : Map<string, string> = new Map();
 
     createRoom(roomCode: string, hostId: string) {
-        let newRoom = new gameRoom(5, roomCode, hostId);
+        let newRoom = new gameRoom(3, roomCode, hostId);
         this.map.set(roomCode, newRoom);
         return newRoom;
     }

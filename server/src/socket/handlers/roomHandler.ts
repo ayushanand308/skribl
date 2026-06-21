@@ -26,7 +26,7 @@ export function handleRoom(socket: Socket , io : Server ) {
             players: room.players, 
             hostId: room.hostId, 
             gameState: 'LOBBY', 
-            settings: { rounds: 3, drawTime: 60, maxPlayers: 8 } 
+            settings: { rounds: room.maxRounds, drawTime: room.drawTime, maxPlayers: room.maxPlayers } 
         });
         room.onRoundEnd=((data: {word:string , score:{id:string, score:number}[]})=>{
             io.to(roomCode).emit("round-end" , data)
@@ -76,7 +76,7 @@ export function handleRoom(socket: Socket , io : Server ) {
             players: room?.players, 
             hostId: room?.hostId, 
             gameState: 'LOBBY', 
-            settings: { rounds: 3, drawTime: 60, maxPlayers: 8 } 
+            settings: { rounds: room?.maxRounds, drawTime: room?.drawTime, maxPlayers: room?.maxPlayers } 
         });
     });
 
@@ -88,7 +88,9 @@ export function handleRoom(socket: Socket , io : Server ) {
             const playerId = room.getPlayerId(socket.id); // frontend id 
             const isHost = playerId === room.getPlayerId(room.hostId); //backend socket id
             room.removePlayer(socket.id);
-            room.endTurn(true)
+            if(room.players.length < 2 || playerId === room.drawer?.socketId){
+                room.endTurn(true);
+            }
             socket.leave(roomCode);
             socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
             if(isHost){            

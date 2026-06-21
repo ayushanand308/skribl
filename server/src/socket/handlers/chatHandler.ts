@@ -20,7 +20,7 @@ export function handleChat(socket: Socket , io : Server) {
         const drawerId = currentDrawer?.id;
 
         if(userId === drawerId){
-            throw new Error('drawers cant use chat');
+            return;
         }
 
         const sender = room.players.find(p => p.id === userId);

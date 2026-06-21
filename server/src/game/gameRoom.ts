@@ -177,6 +177,7 @@ export class gameRoom{
     }
 
     endTurn(shift?:boolean){
+        this.word = "";
         if(this.players.length===0){
             if(this.timer){
                 clearTimeout(this.timer);
