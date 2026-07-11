@@ -1,6 +1,7 @@
 
 import { GameStateMachine } from "./gameStateMachine";
 import { player } from "./player";
+import { redisClient } from "../services/redisClient";
 
 export class gameRoom{
     machine: GameStateMachine
@@ -16,10 +17,8 @@ export class gameRoom{
     roomCode: string;
     hostId: string;
     roundStartTime: number = 0;
-    correctGuessers: Set<string> = new Set();
     turnTotalScore: number = 0;
-
-
+    isTurnOver : number = 0;
     onRoundEnd : (data : {
         word:string, 
         score : {
@@ -35,6 +34,7 @@ export class gameRoom{
         }[]
     }) => void
 
+
     constructor(maxRounds : number , roomCode : string, hostId: string){
         this.machine = new GameStateMachine();
         this.players = [];
@@ -48,11 +48,11 @@ export class gameRoom{
         this.hostId = hostId;
         this.currentPlayer = 0;
         this.roundStartTime = 0;
-        this.correctGuessers = new Set<string>();
         this.turnTotalScore = 0;
         this.onRoundEnd = () => {};
         this.onTurnStart =() => {};
         this.onGameOver = () => {};
+        this.isTurnOver = 0;
     }
 
     addPlayer(player : player){
@@ -95,23 +95,26 @@ export class gameRoom{
         return (Date.now() - this.roundStartTime) / 1000;
     }
 
-    addScore(playerId: string, score: number): boolean {
-        if (this.correctGuessers.has(playerId)) {
-            return false;
-        }
-
+    async addScore(playerId: string, score: number, timeElapsed : number): Promise<boolean> {
         const player = this.players.find(p => p.id === playerId);
         if (player) {
+            //player.score += score;
+            //this.turnTotalScore += score;
+            const result : [number,number] = await redisClient.recordGuess(this.roomCode, player.id ,timeElapsed, this.players.length - 1);
+            const wasNewGuess = result[0];
+            if(!wasNewGuess){
+                return false;
+            }
             player.score += score;
             this.turnTotalScore += score;
-            this.correctGuessers.add(playerId);
+            this.isTurnOver = result[1];
             return true;
         }
         return false;
     }
 
     allGuessed(): boolean {
-        return this.correctGuessers.size >= this.players.length - 1;
+        return this.isTurnOver?true:false;
     }
 
     setWord(word:string){
@@ -122,7 +125,7 @@ export class gameRoom{
         console.log(`[GameRoom:${this.roomCode}] startGame — state: ${this.machine.getState()}, players: ${this.players.length}, settings:`, settings);
         if(this.machine.getState()!=='LOBBY' || this.players.length<2){
             console.error(`[GameRoom:${this.roomCode}] Cannot start — state: ${this.machine.getState()}, players: ${this.players.length}`);
-            throw new Error("can't start an already started game");
+            return false;
         }
 
         if(settings){
@@ -139,6 +142,39 @@ export class gameRoom{
         console.log(`[GameRoom:${this.roomCode}] Drawer: ${this.drawer?.name} (${this.drawer?.id})`);
 
     }
+
+    restartGame(settings?: {rounds?: number, drawTime?: number, maxPlayers?: number}){
+        console.log(`[GameRoom:${this.roomCode}] startGame — state: ${this.machine.getState()}, players: ${this.players.length}, settings:`, settings);
+        if(this.machine.getState()!=='GAME_END' || this.players.length<2){
+            console.error(`[GameRoom:${this.roomCode}] Cannot start — state: ${this.machine.getState()}, players: ${this.players.length}`);
+            return false;
+        }
+
+        if(settings){
+            if(settings.rounds) this.maxRounds = settings.rounds;
+            if(settings.drawTime) this.drawTime = settings.drawTime;
+            if(settings.maxPlayers) this.maxPlayers = settings.maxPlayers;
+        }
+
+        console.log(`[GameRoom:${this.roomCode}] Config — maxRounds: ${this.maxRounds}, drawTime: ${this.drawTime}s, maxPlayers: ${this.maxPlayers}`);
+
+        if (this.timer) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+
+        this.players.forEach(p => p.score = 0);
+        redisClient.clearSolvedSet(this.roomCode);
+        this.isTurnOver = 0;
+        this.turnTotalScore = 0;
+        this.currentPlayer = 0;
+        this.currentRound = 1;
+        this.drawer = null;
+        this.word = "";
+
+        this.machine.dispatch('RESTART');
+    }
+
 
     startTurn(){
         if(this.players.length===0){
@@ -177,6 +213,7 @@ export class gameRoom{
     }
 
     endTurn(shift?:boolean){
+        const endedWord = this.word;
         this.word = "";
         if(this.players.length===0){
             if(this.timer){
@@ -185,7 +222,7 @@ export class gameRoom{
             }
             return;
         }
-        console.log(`[GameRoom:${this.roomCode}] endTurn — state: ${this.machine.getState()}, word: ${this.word}, round: ${this.currentRound}/${this.maxRounds}`);
+        console.log(`[GameRoom:${this.roomCode}] endTurn — state: ${this.machine.getState()}, word: ${endedWord}, round: ${this.currentRound}/${this.maxRounds}`);
         this.endRoundTimer();
 
         if(shift){
@@ -208,10 +245,11 @@ export class gameRoom{
             const scores = this.players.map ((p)=>{
                 return {id : p.id , score:p.score}
             })
-            this.onRoundEnd({word:this.word , score : scores})
+            this.onRoundEnd({word:endedWord , score : scores})
         }
 
-        this.correctGuessers.clear();
+        redisClient.clearSolvedSet(this.roomCode);
+        this.isTurnOver = 0;
         this.startTurn();
     }
 }

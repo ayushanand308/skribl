@@ -327,7 +327,7 @@ const GameModule = (() => {
     }
 
     function _playAgain() {
-        SocketClient.emit('game:play-again', {});
+        SocketClient.emit('game:play-again', { roomCode: LobbyModule.getRoomCode() });
         document.getElementById('overlay-game-over').style.display = 'none';
     }
 

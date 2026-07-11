@@ -88,7 +88,8 @@ export function handleRoom(socket: Socket , io : Server ) {
             const playerId = room.getPlayerId(socket.id); // frontend id 
             const isHost = playerId === room.getPlayerId(room.hostId); //backend socket id
             room.removePlayer(socket.id);
-            if(room.players.length < 2 || playerId === room.drawer?.socketId){
+            const state = room.machine.getState();
+            if(state !== 'LOBBY' && state !== 'GAME_END' && (room.players.length < 2 || playerId === room.drawer?.socketId)){
                 room.endTurn(true);
             }
             socket.leave(roomCode);

@@ -191,6 +191,11 @@ const LobbyModule = (() => {
     function getMyPlayerId() {
         return myPlayerId;
     }
+    function resetForNewGame() {
+        players.forEach(p => p.score = 0);
+        _renderPlayers();
+        _updateStartButton();
+    }
 
-    return { init, kickPlayer, getPlayers, getSettings, setPlayers, getRoomCode, getMyPlayerId };
+    return { init, kickPlayer, getPlayers, getSettings, setPlayers, getRoomCode, getMyPlayerId, resetForNewGame };
 })();

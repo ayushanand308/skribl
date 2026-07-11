@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { WordBank } from "../../game/wordBank";
 
 export function handleChat(socket: Socket , io : Server) {
-    socket.on("chat-message",(payload)=>{
+    socket.on("chat-message",async (payload)=>{
         const {message , roomCode , userId } = payload;
         const room = RoomManager.getRoom(roomCode);
         if (!room) return;
@@ -30,7 +30,7 @@ export function handleChat(socket: Socket , io : Server) {
         const { matchType, score } = WordBank.checkWordMatch(message, room.word, timeElapsed);
 
         if (matchType === 'exact') {
-            const added = room.addScore(userId, score);
+            const added = await room.addScore(userId, score, timeElapsed);
             if (!added) return;
 
             io.to(roomCode).emit("chat-message", {

@@ -1,6 +1,5 @@
 import { Socket } from "socket.io";
 import RoomManager  from "../../services/roomManager";
-import roomManager from "../../services/roomManager";
 import { Server } from "socket.io";
 import { WordBank } from "../../game/wordBank";
 
@@ -8,7 +7,7 @@ export function handleGame(socket: Socket , io : Server) {
     socket.on("game-start",(payload)=>{
         const {userName , roomCode, settings} = payload;
         console.log(`[GameHandler] game-start — room: ${roomCode}, settings:`, settings);
-        const room = roomManager.getRoom(roomCode);
+        const room = RoomManager.getRoom(roomCode);
 
         if(room){
             room.startGame(settings);
@@ -22,11 +21,22 @@ export function handleGame(socket: Socket , io : Server) {
         }
     });
 
+    socket.on("game:play-again", (payload) => {
+        const { roomCode } = payload;
+        if (!roomCode) return;
+
+        const room = RoomManager.getRoom(roomCode);
+        if (room) {
+            room.restartGame();
+            io.to(roomCode).emit("game:back-to-lobby");
+        }
+    });
+
     socket.on('word-choosen' ,(payload)=>{
         let {choosenWord , roomCode} = payload;
         console.log(`[GameHandler] word-choosen — room: ${roomCode}, word: ${choosenWord}`);
 
-        const room = roomManager.getRoom(roomCode);
+        const room = RoomManager.getRoom(roomCode);
         const drawerSocket = room?.drawer?.socketId;
 
         if(room && choosenWord === ''){

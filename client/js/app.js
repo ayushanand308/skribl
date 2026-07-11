@@ -58,6 +58,13 @@ const App = (() => {
         SocketClient.on('game:back-to-lobby', () => {
             showScreen('lobby');
             ChatModule.clear();
+            LobbyModule.resetForNewGame();
+        });
+
+        SocketClient.on('game-over', (data) => {
+            const reason = data && data.reason === 'host_left' ? 'HOST LEFT THE GAME' : 'GAME ENDED';
+            toast(`>> ${reason} <<`, 'warning');
+            showScreen('home');
         });
 
         SocketClient.connect();
@@ -102,7 +109,7 @@ const App = (() => {
 
         SocketClient.emit('room-create', {
             username: name,
-            id: String(Math.random()),
+            id: crypto.randomUUID(),
             avatar: selectedAvatar,
         });
     }
@@ -122,7 +129,7 @@ const App = (() => {
         SocketClient.emit('room-join', {
             roomCode: code,
             username: name,
-            id: String(Math.random()),
+            id: crypto.randomUUID(),
             avatar: selectedAvatar,
         });
     }
