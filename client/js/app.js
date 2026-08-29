@@ -3,6 +3,14 @@ const App = (() => {
     let selectedAvatar = AVATARS[0];
     let currentScreen = 'home';
 
+    function _generateId() {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    }
+
     function init() {
         _initTheme();
         CanvasModule.init();
@@ -38,6 +46,14 @@ const App = (() => {
         });
         SocketClient.on('_error', (data) => {
             toast(`ERROR: ${data.message}`, 'error');
+        });
+
+        SocketClient.on('system:degraded', (data) => {
+            toast(`SYSTEM DEGRADED: ${data.message}`, 'error');
+        });
+
+        SocketClient.on('system:recovered', (data) => {
+            toast(`SYSTEM RESTORED: ${data.message}`, 'success');
         });
 
         SocketClient.on('room:error', (data) => {
@@ -109,7 +125,7 @@ const App = (() => {
 
         SocketClient.emit('room-create', {
             username: name,
-            id: crypto.randomUUID(),
+            id: _generateId(),
             avatar: selectedAvatar,
         });
     }
@@ -129,7 +145,7 @@ const App = (() => {
         SocketClient.emit('room-join', {
             roomCode: code,
             username: name,
-            id: crypto.randomUUID(),
+            id: _generateId(),
             avatar: selectedAvatar,
         });
     }

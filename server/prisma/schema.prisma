@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String            @id @default(uuid())
+  username     String            @unique
+  email        String            @unique
+  passwordHash String
+  createdAt    DateTime          @default(now())
+  lastLoginAt  DateTime?
+  gameParticipants GameParticipant[]
+}
+
+model Game {
+  id           String            @id @default(uuid())
+  roomCode     String
+  maxRounds    Int
+  drawTimeSecs Int
+  startedAt    DateTime          @default(now())
+  endedAt      DateTime?
+
+  participants GameParticipant[]
+  rounds       Round[]
+}
+
+model GameParticipant {
+  id          String   @id @default(uuid())
+  gameId      String
+  userId      String?
+  displayName String
+  finalScore  Int      @default(0)
+
+  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  drawnRounds Round[]  @relation("RoundDrawer")
+  guesses     Guess[]
+}
+
+model Round {
+  id                  String    @id @default(uuid())
+  gameId              String
+  roundNumber         Int
+  drawerParticipantId String
+  word                String
+  startedAt           DateTime  @default(now())
+  endedAt             DateTime?
+
+  game                Game            @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  drawer              GameParticipant @relation("RoundDrawer", fields: [drawerParticipantId], references: [id])
+  guesses             Guess[]
+}
+
+model Guess {
+  id            String   @id @default(uuid())
+  roundId       String
+  participantId String
+  guess         String
+  correct       Boolean  @default(false)
+  timeTakenMs   Int
+  guessedAt     DateTime @default(now())
+
+  round       Round           @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  participant GameParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+}
+
+model WordPack {
+  id         String   @id
+  name       String
+  language   String
+  isDefault  Boolean  @default(false)
+
+  words      Word[]
+}
+
+model Word {
+  id         String   @id
+  wordPackId String
+  text       String
+  difficulty Int      @default(1)
+
+  wordPack   WordPack @relation(fields: [wordPackId], references: [id], onDelete: Cascade)
+}

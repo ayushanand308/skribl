@@ -1,0 +1,39 @@
+config:
+  target: "http://127.0.0.1:3000"
+  socketio:
+    transports:
+      - websocket
+  phases:
+    - name: "Ramp up"
+      duration: 30
+      arrivalRate: 5
+
+    - name: "Sustained load"
+      duration: 60
+      arrivalRate: 20
+
+    - name: "Cool down"
+      duration: 10
+      arrivalRate: 2
+
+scenarios:
+  - name: "Host creates a room and stays in lobby"
+    weight: 100
+    engine: socketio
+    flow:
+      - emit:
+          channel: "room-create"
+          data:
+            username: "ArtilleryHost_{{ $randomString() }}"
+            id: "{{ $randomString() }}"
+            avatar: "🤖"
+
+      - think: 2
+
+      - emit:
+          channel: "room:update-settings"
+          data:
+            rounds: 3
+            drawTime: 60
+
+      - think: 10

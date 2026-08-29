@@ -2,6 +2,7 @@ import { Socket } from "socket.io";
 import RoomManager  from "../../services/roomManager";
 import { Server } from "socket.io";
 import { WordBank } from "../../game/wordBank";
+import { redisClient } from "../../services/redisClient";
 
 export function handleChat(socket: Socket , io : Server) {
     socket.on("chat-message",async (payload)=>{
@@ -33,6 +34,15 @@ export function handleChat(socket: Socket , io : Server) {
             const added = await room.addScore(userId, score, timeElapsed);
             if (!added) return;
 
+            redisClient.insertGuessData(
+                roomCode,
+                room.currentRound,
+                userId,
+                message,
+                true,
+                Math.round(timeElapsed * 1000)
+            ).catch(err => console.error(`[ChatHandler:${roomCode}] Failed to log guess:`, err));
+
             io.to(roomCode).emit("chat-message", {
                 sender: "System",
                 message: `${username} guessed the word!`
@@ -48,6 +58,15 @@ export function handleChat(socket: Socket , io : Server) {
                 room.endTurn();
             }
         } else if (matchType === 'close') {
+            redisClient.insertGuessData(
+                roomCode,
+                room.currentRound,
+                userId,
+                message,
+                false,
+                Math.round(timeElapsed * 1000)
+            ).catch(err => console.error(`[ChatHandler:${roomCode}] Failed to log close guess:`, err));
+
             socket.emit("chat-message", {
                 sender: "System",
                 message: `'${message}' is close!`

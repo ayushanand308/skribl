@@ -2,6 +2,7 @@ import { Socket , Server } from "socket.io";
 import RoomManager  from "../../services/roomManager";
 import { player } from "../../game/player";
 import { WordBank } from "../../game/wordBank";
+import { flushQueue } from "../../services/flushQueue";
 
 
 export function handleRoom(socket: Socket , io : Server ) {
@@ -44,6 +45,11 @@ export function handleRoom(socket: Socket , io : Server ) {
 
         room.onGameOver = (data) => {
             io.to(roomCode).emit("game:over", data);
+            flushQueue.add('flush-game', {
+                roomCode,
+                finalScores: data.finalScores,
+                enqueuedAt: Date.now(),
+            }).catch((err: Error) => console.error(`[RoomHandler:${roomCode}] Failed to enqueue flush job:`, err));
         };
     });
 

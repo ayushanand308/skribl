@@ -6,7 +6,7 @@ const SocketClient = (() => {
         if (socket && socket.connected) return;
 
         socket = io(serverUrl, {
-            transports: ['websocket', 'polling'],
+            transports: ['websocket'],
             reconnection: true,
             reconnectionAttempts: 10,
             reconnectionDelay: 1000,
@@ -60,6 +60,8 @@ const SocketClient = (() => {
             'stroke-fill',
             'stroke-undo',
             'chat-message',
+            'system:degraded',
+            'system:recovered',
         ];
 
         serverEvents.forEach((event) => {

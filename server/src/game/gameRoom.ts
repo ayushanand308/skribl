@@ -141,6 +141,11 @@ export class gameRoom{
         this.drawer = this.players[turn];  
         console.log(`[GameRoom:${this.roomCode}] Drawer: ${this.drawer?.name} (${this.drawer?.id})`);
 
+        redisClient.initRoomInRedis(
+            { roomCode: this.roomCode, maxRounds: this.maxRounds, drawTimeSecs: this.drawTime },
+            this.players.map(p => ({ playerId: p.id, userId: null, displayName: p.name }))
+        ).catch(err => console.error(`[GameRoom:${this.roomCode}] Failed to init Redis:`, err));
+
     }
 
     restartGame(settings?: {rounds?: number, drawTime?: number, maxPlayers?: number}){
@@ -213,6 +218,7 @@ export class gameRoom{
     }
 
     endTurn(shift?:boolean){
+        const startedAt = this.roundStartTime;
         const endedWord = this.word;
         this.word = "";
         if(this.players.length===0){
@@ -246,6 +252,17 @@ export class gameRoom{
                 return {id : p.id , score:p.score}
             })
             this.onRoundEnd({word:endedWord , score : scores})
+        }
+
+        if (endedWord && this.drawer) {
+            redisClient.insertRoundData(
+                this.roomCode,
+                this.currentRound,
+                endedWord,
+                startedAt,
+                Date.now(),
+                this.drawer.id
+            ).catch(err => console.error(`[GameRoom:${this.roomCode}] Failed to insert round data to Redis:`, err));
         }
 
         redisClient.clearSolvedSet(this.roomCode);

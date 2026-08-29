@@ -1,12 +1,31 @@
 import { Redis } from 'ioredis';
 import * as fs from 'fs';
 import * as path from 'path';
+import { EventEmitter } from 'events';
 
-export class RedisClient {
+export class RedisClient extends EventEmitter {
     private client: Redis;
+    public isHealthy: boolean = false;
 
     constructor() {
+        super();
         this.client = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+
+        this.client.on('error', (err) => {
+            console.error('[RedisClient] Connection error:', err.message);
+            if (this.isHealthy) {
+                this.isHealthy = false;
+                this.emit('status_changed', false); 
+            }
+        });
+
+        this.client.on('ready', () => {
+            console.log('[RedisClient] Connection ready');
+            if (!this.isHealthy) {
+                this.isHealthy = true;
+                this.emit('status_changed', true); 
+            }
+        });
 
         const luaScript = fs.readFileSync(
             path.join(__dirname, '../scripts/record_guess.lua'),
@@ -18,18 +37,143 @@ export class RedisClient {
         });
     }
 
+    getClient(): Redis {
+        return this.client;
+    }
+
+    async safeRedisCall<T>(operation: () => Promise<T>, fallback: T, context: string): Promise<T> {
+        if (!this.isHealthy) return fallback;
+        try {
+            return await operation();
+        } catch (err) {
+            console.error(`[RedisClient] Call failed in context "${context}":`, (err as Error).message);
+            return fallback;
+        }
+    }
+
     async recordGuess(roomCode: string, playerId: string, timeElapsed: number, totalPlayers: number): Promise<[number, number]> {
-        const key = `room:${roomCode}:solved`;
-        const result = await (this.client as any).recordGuess(key, playerId, timeElapsed, totalPlayers);
-        return result as [number, number];
+        return this.safeRedisCall(
+            () => {
+                const key = `room:${roomCode}:solved`;
+                return (this.client as any).recordGuess(key, playerId, timeElapsed, totalPlayers);
+            },
+            [0, 0] as [number, number],
+            'recordGuess'
+        );
     }
 
     async clearSolvedSet(roomCode: string): Promise<void> {
-        await this.client.del(`room:${roomCode}:solved`);
+        return this.safeRedisCall(
+            () => this.client.del(`room:${roomCode}:solved`).then(() => {}),
+            undefined,
+            'clearSolvedSet'
+        );
     }
 
     disconnect() {
         this.client.disconnect();
+    }
+
+    async initRoomInRedis(
+        gameMeta: { roomCode: string; maxRounds: number; drawTimeSecs: number },
+        gameParticipants: { playerId: string; userId: string | null; displayName: string }[]
+    ) {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hset(`room:${gameMeta.roomCode}:meta`, {
+                    roomCode: gameMeta.roomCode,
+                    maxRounds: gameMeta.maxRounds,
+                    drawTimeSecs: gameMeta.drawTimeSecs,
+                    startedAt: Date.now(),
+                });
+                await this.client.set(
+                    `room:${gameMeta.roomCode}:participants`,
+                    JSON.stringify(gameParticipants)
+                );
+            },
+            undefined,
+            'initRoomInRedis'
+        );
+    }
+
+    async insertRoundData(roomCode: string, roundNumber: number, word: string, startedAt: number, endedAt: number, drawerPlayerId: string) {
+        return this.safeRedisCall(
+            async () => {
+                const roundRecord = { roundNumber, word, startedAt, endedAt, drawerPlayerId };
+                await this.client.rpush(`room:${roomCode}:rounds`, JSON.stringify(roundRecord));
+            },
+            undefined,
+            'insertRoundData'
+        );
+    }
+
+    async insertGuessData(roomCode: string, roundNumber: number, playerId: string, guess: string, correct: boolean, timeTakenMs: number) {
+        return this.safeRedisCall(
+            async () => {
+                const guessRecord = { roundNumber, playerId, guess, correct, timeTakenMs, guessedAt: Date.now() };
+                await this.client.rpush(`room:${roomCode}:guesses`, JSON.stringify(guessRecord));
+            },
+            undefined,
+            'insertGuessData'
+        );
+    }
+
+    async fetchRoomDataForFlush(roomCode: string) {
+        if (!this.isHealthy) throw new Error(`[RedisClient] Cannot fetch room data, Redis is unhealthy`);
+
+        const [metaRaw, participantsRaw, roundsRaw, guessesRaw] = await Promise.all([
+            this.client.hgetall(`room:${roomCode}:meta`),
+            this.client.get(`room:${roomCode}:participants`),
+            this.client.lrange(`room:${roomCode}:rounds`, 0, -1),
+            this.client.lrange(`room:${roomCode}:guesses`, 0, -1),
+        ]);
+
+        if (!metaRaw.maxRounds || !metaRaw.drawTimeSecs || !metaRaw.startedAt) {
+            throw new Error(`[RedisClient] Cannot flush room ${roomCode}: Metadata missing or corrupted in Redis.`);
+        }
+
+        const meta = {
+            roomCode,
+            maxRounds: Number(metaRaw.maxRounds),
+            drawTimeSecs: Number(metaRaw.drawTimeSecs),
+            startedAt: Number(metaRaw.startedAt),
+        };
+
+        if (!participantsRaw) {
+            throw new Error(`[RedisClient] Cannot flush room ${roomCode}: Participants data missing in Redis.`);
+        }
+        const participants: { playerId: string; userId: string | null; displayName: string }[] = JSON.parse(participantsRaw);
+        if (participants.length === 0) {
+            throw new Error(`[RedisClient] Cannot flush room ${roomCode}: Participants list is empty.`);
+        }
+
+        if (!roundsRaw || roundsRaw.length === 0) {
+            throw new Error(`[RedisClient] Cannot flush room ${roomCode}: No rounds recorded for this game.`);
+        }
+        const rounds: { roundNumber: number; word: string; startedAt: number; endedAt: number; drawerPlayerId: string }[] =
+            roundsRaw.map(r => JSON.parse(r));
+
+        const guesses: { roundNumber: number; playerId: string; guess: string; correct: boolean; timeTakenMs: number; guessedAt: number }[] =
+            guessesRaw ? guessesRaw.map(g => JSON.parse(g)) : [];
+
+        return { meta, participants, rounds, guesses };
+    }
+
+    async expireRoomKeys(roomCode: string, ttlSeconds: number = 3600) {
+        return this.safeRedisCall(
+            async () => {
+                const keys = [
+                    `room:${roomCode}:meta`,
+                    `room:${roomCode}:participants`,
+                    `room:${roomCode}:rounds`,
+                    `room:${roomCode}:guesses`,
+                    `room:${roomCode}:solved`,
+                ];
+                await Promise.all(keys.map(key => this.client.expire(key, ttlSeconds)));
+            },
+            undefined,
+            'expireRoomKeys'
+        );
     }
 }
 

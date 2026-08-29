@@ -7,6 +7,7 @@
     "dev:server": "nodemon",
     "dev:client": "npx -y http-server client -p 3001",
     "build": "tsc",
+    "db:seed": "prisma db seed",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -14,18 +15,30 @@
   "keywords": [],
   "description": "",
   "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^6.3.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "ioredis": "^5.11.1",
+    "jsonwebtoken": "^9.0.2",
+    "prisma": "^5.14.0",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^25.3.2",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "prisma": {
+    "schema": "server/prisma/schema.prisma",
+    "seed": "ts-node server/prisma/seed.ts"
   }
 }
