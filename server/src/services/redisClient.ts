@@ -74,6 +74,132 @@ export class RedisClient extends EventEmitter {
         this.client.disconnect();
     }
 
+    async setRoomState(roomCode: string, state: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hset(`room:${roomCode}:meta`, 'state', state);
+                await this.client.set(`room:${roomCode}:state`, state);
+            },
+            undefined,
+            'setRoomState'
+        );
+    }
+
+    async getRoomState(roomCode: string): Promise<string | null> {
+        return this.safeRedisCall(
+            async () => {
+                const state = await this.client.get(`room:${roomCode}:state`);
+                if (state) return state;
+                return await this.client.hget(`room:${roomCode}:meta`, 'state');
+            },
+            null,
+            'getRoomState'
+        );
+    }
+
+    async addPlayerToRedis(roomCode: string, player: { id: string; socketId: string; name: string; score: number; avatar?: string }): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hset(`room:${roomCode}:players`, player.id, JSON.stringify(player));
+            },
+            undefined,
+            'addPlayerToRedis'
+        );
+    }
+
+    async removePlayerFromRedis(roomCode: string, playerId: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hdel(`room:${roomCode}:players`, playerId);
+            },
+            undefined,
+            'removePlayerFromRedis'
+        );
+    }
+
+    async getPlayersFromRedis(roomCode: string): Promise<{ id: string; socketId: string; name: string; score: number; avatar?: string }[]> {
+        return this.safeRedisCall(
+            async () => {
+                const rawMap = await this.client.hgetall(`room:${roomCode}:players`);
+                if (!rawMap) return [];
+                return Object.values(rawMap).map(jsonStr => JSON.parse(jsonStr));
+            },
+            [],
+            'getPlayersFromRedis'
+        );
+    }
+
+    async updatePlayerScoreInRedis(roomCode: string, playerId: string, newScore: number): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                const playerJson = await this.client.hget(`room:${roomCode}:players`, playerId);
+                if (playerJson) {
+                    const p = JSON.parse(playerJson);
+                    p.score = newScore;
+                    await this.client.hset(`room:${roomCode}:players`, playerId, JSON.stringify(p));
+                }
+            },
+            undefined,
+            'updatePlayerScoreInRedis'
+        );
+    }
+    async setTurnDataInRedis(roomCode: string, word: string, drawerId: string, roundStartTime: number): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hset(`room:${roomCode}:meta`, {
+                    word,
+                    drawerId,
+                    roundStartTime,
+                    turnTotalScore: 0
+                });
+            },
+            undefined,
+            'setTurnDataInRedis'
+        );
+    }
+
+    async addTurnScoreInRedis(roomCode: string, score: number): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hincrby(`room:${roomCode}:meta`, 'turnTotalScore', score);
+            },
+            undefined,
+            'addTurnScoreInRedis'
+        );
+    }
+
+    async getTurnDataFromRedis(roomCode: string): Promise<{ word: string | null; drawerId: string | null; roundStartTime: number | null; turnTotalScore: number }> {
+        return this.safeRedisCall(
+            async () => {
+                const [word, drawerId, roundStartTimeStr, turnTotalScoreStr] = await this.client.hmget(
+                    `room:${roomCode}:meta`,
+                    'word',
+                    'drawerId',
+                    'roundStartTime',
+                    'turnTotalScore'
+                );
+                return {
+                    word: word || null,
+                    drawerId: drawerId || null,
+                    roundStartTime: roundStartTimeStr ? Number(roundStartTimeStr) : null,
+                    turnTotalScore: turnTotalScoreStr ? Number(turnTotalScoreStr) : 0
+                };
+            },
+            { word: null, drawerId: null, roundStartTime: null, turnTotalScore: 0 },
+            'getTurnDataFromRedis'
+        );
+    }
+
+    async clearTurnDataInRedis(roomCode: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hdel(`room:${roomCode}:meta`, 'word', 'drawerId', 'roundStartTime', 'turnTotalScore');
+            },
+            undefined,
+            'clearTurnDataInRedis'
+        );
+    }
+
     async initRoomInRedis(
         gameMeta: { roomCode: string; maxRounds: number; drawTimeSecs: number },
         gameParticipants: { playerId: string; userId: string | null; displayName: string }[]
@@ -85,7 +211,9 @@ export class RedisClient extends EventEmitter {
                     maxRounds: gameMeta.maxRounds,
                     drawTimeSecs: gameMeta.drawTimeSecs,
                     startedAt: Date.now(),
+                    state: 'LOBBY',
                 });
+                await this.client.set(`room:${gameMeta.roomCode}:state`, 'LOBBY');
                 await this.client.set(
                     `room:${gameMeta.roomCode}:participants`,
                     JSON.stringify(gameParticipants)

@@ -9,29 +9,40 @@ export function handleChat(socket: Socket , io : Server) {
         const {message , roomCode , userId } = payload;
         const room = RoomManager.getRoom(roomCode);
         if (!room) return;
+        
+        await room.machine.syncFromRedis();
 
-        if(!room.word){
+        if (room.machine.getState() !== 'DRAW') {
             const sender = room.players.find((p) => p.id === userId);
             const username = sender?.name || 'Unknown'
             io.to(roomCode).emit("chat-message", { sender: username, message });
             return;
         }
 
-        const currentDrawer = room?.drawer;
-        const drawerId = currentDrawer?.id;
+        const turnData = await redisClient.getTurnDataFromRedis(roomCode);
+        if (!turnData.word) {
+            const sender = room.players.find((p) => p.id === userId);
+            const username = sender?.name || 'Unknown'
+            io.to(roomCode).emit("chat-message", { sender: username, message });
+            return;
+        }
 
-        if(userId === drawerId){
+        if(userId === turnData.drawerId){
             return;
         }
 
         const sender = room.players.find(p => p.id === userId);
         const username = sender?.name || "Unknown";
 
-        const timeElapsed = room.getTimeElapsed();
-        const { matchType, score } = WordBank.checkWordMatch(message, room.word, timeElapsed);
+        let timeElapsed = 0;
+        if (turnData.roundStartTime) {
+            timeElapsed = (Date.now() - turnData.roundStartTime) / 1000;
+        }
+
+        const { matchType, score } = WordBank.checkWordMatch(message, turnData.word, timeElapsed);
 
         if (matchType === 'exact') {
-            const added = await room.addScore(userId, score, timeElapsed);
+            const { added, isTurnOver } = await room.addScore(userId, score, timeElapsed);
             if (!added) return;
 
             redisClient.insertGuessData(
@@ -54,8 +65,9 @@ export function handleChat(socket: Socket , io : Server) {
                 score: score
             });
 
-            if (room.allGuessed()) {
-                room.endTurn();
+            if (isTurnOver) {
+                room.machine.dispatch('ALL_GUESSED');
+                await room.endTurn();
             }
         } else if (matchType === 'close') {
             redisClient.insertGuessData(

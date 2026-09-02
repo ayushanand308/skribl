@@ -1,3 +1,5 @@
+import { redisClient } from "../services/redisClient";
+
 //states
 type gameState = "LOBBY" | "PICK_WORD" | "DRAW" | "TURN_END" | "GAME_END";
 
@@ -96,18 +98,35 @@ function dispatch(currentState: gameState, event: events): gameState {
 
 export class GameStateMachine {
     private currentState : gameState ;
+    private roomCode?: string;
 
-    constructor(){
+    constructor(roomCode?: string){
         this.currentState = "LOBBY";
+        this.roomCode = roomCode;
     }
 
     getState() : gameState{
         return this.currentState;
     }
 
+    async syncFromRedis(): Promise<gameState> {
+        if (this.roomCode) {
+            const redisState = await redisClient.getRoomState(this.roomCode);
+            if (redisState) {
+                this.currentState = redisState as gameState;
+            }
+        }
+        return this.currentState;
+    }
+
     dispatch(event : events) : gameState{
         const prev = this.currentState;
         this.currentState = dispatch(this.currentState, event);
+        if (this.roomCode) {
+            redisClient.setRoomState(this.roomCode, this.currentState).catch(err => {
+                console.error(`[GameStateMachine:${this.roomCode}] Failed to sync state to Redis:`, err);
+            });
+        }
         return this.currentState;
     }
 }

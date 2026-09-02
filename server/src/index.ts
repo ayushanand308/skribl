@@ -13,6 +13,7 @@ import { redisClient } from "./services/redisClient";
 
 import { createAdapter } from "@socket.io/redis-adapter";
 import { startFlushWorker } from "./services/flushWorker";
+import { setIO } from "./services/socketService";
 
 import { monitorEventLoopDelay } from "perf_hooks";
 
@@ -45,12 +46,15 @@ app.use("/", router);
 app.use("/auth", authRoutes);
 app.use("/api/v1", apiRoutes);
 
+
+
 const io = new Server(httpServer, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
   }
 });
+setIO(io);
 
 const pubClient = redisClient.getClient();
 const subClient = pubClient.duplicate();

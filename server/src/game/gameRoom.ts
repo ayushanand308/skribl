@@ -2,11 +2,13 @@
 import { GameStateMachine } from "./gameStateMachine";
 import { player } from "./player";
 import { redisClient } from "../services/redisClient";
+import { getIO } from "../services/socketService";
+import { flushQueue } from "../services/flushQueue";
+import { WordBank } from "./wordBank";
 
 export class gameRoom{
     machine: GameStateMachine
     players: player[]
-    word: string
     timer: NodeJS.Timeout | null
     currentRound: number
     drawer: player | null = null;
@@ -16,29 +18,16 @@ export class gameRoom{
     maxPlayers: number;
     roomCode: string;
     hostId: string;
-    roundStartTime: number = 0;
-    turnTotalScore: number = 0;
-    isTurnOver : number = 0;
-    onRoundEnd : (data : {
-        word:string, 
-        score : {
-            id:string,
-            score:number
-        }[]
-    }) => void
-    onTurnStart : (player:player)=>void
-    onGameOver : (data : {
-        finalScores : {
-            id:string,
-            score:number
-        }[]
-    }) => void
+
 
 
     constructor(maxRounds : number , roomCode : string, hostId: string){
-        this.machine = new GameStateMachine();
+        this.roomCode = roomCode;
+        this.machine = new GameStateMachine(roomCode);
+        redisClient.setRoomState(roomCode, "LOBBY").catch(err => {
+            console.error(`[GameRoom:${roomCode}] Failed to set initial LOBBY state in Redis:`, err);
+        });
         this.players = [];
-        this.word = "";
         this.timer = null;
         this.currentRound = 1;
         this.maxRounds = maxRounds;
@@ -47,23 +36,34 @@ export class gameRoom{
         this.roomCode = roomCode;
         this.hostId = hostId;
         this.currentPlayer = 0;
-        this.roundStartTime = 0;
-        this.turnTotalScore = 0;
-        this.onRoundEnd = () => {};
-        this.onTurnStart =() => {};
-        this.onGameOver = () => {};
-        this.isTurnOver = 0;
     }
 
     addPlayer(player : player){
         this.players.push(player);
+        redisClient.addPlayerToRedis(this.roomCode, player).catch(err => {
+            console.error(`[GameRoom:${this.roomCode}] Failed to add player ${player.id} to Redis:`, err);
+        });
     }
 
     removePlayer(socketId : string){
-        console.log(this.players.length, " L1 ")
+        console.log(this.players.length, " L1 ");
+        const target = this.players.find(p => p.socketId === socketId);
         this.players =  this.players.filter((p)=>p.socketId!==socketId);
-        console.log(this.players.length, " L2 ")
+        console.log(this.players.length, " L2 ");
 
+        if (target) {
+            redisClient.removePlayerFromRedis(this.roomCode, target.id).catch(err => {
+                console.error(`[GameRoom:${this.roomCode}] Failed to remove player ${target.id} from Redis:`, err);
+            });
+        }
+    }
+
+    async syncPlayersFromRedis(): Promise<player[]> {
+        const redisPlayers = await redisClient.getPlayersFromRedis(this.roomCode);
+        if (redisPlayers && redisPlayers.length > 0) {
+            this.players = redisPlayers;
+        }
+        return this.players;
     }
 
     getPlayerId(socketId: string){
@@ -75,50 +75,57 @@ export class gameRoom{
         return this.players.length === 0;
     }
 
-    startRoundTimer(){
-        this.roundStartTime = Date.now();
-        this.timer = setTimeout(()=>{
-            this.endTurn(false);
+    async startRoundTimer(word: string){
+        const roundStartTime = Date.now();
+        
+        // Write turn data to Redis
+        await redisClient.setTurnDataInRedis(
+            this.roomCode,
+            word,
+            this.drawer?.id || '',
+            roundStartTime
+        );
+
+        this.timer = setTimeout(async ()=>{
+            // Redis Validation: check if state is still DRAW before ending turn
+            const currentState = await redisClient.getRoomState(this.roomCode);
+            if (currentState !== 'DRAW') {
+                return; // Turn already ended by another instance
+            }
+            
+            this.machine.dispatch('GUESS_TIMER_EXPIRED');
+            await this.endTurn(false);
         }, this.drawTime * 1000);
     }
 
     endRoundTimer(){
-        this.roundStartTime=0;
         if(this.timer){
             clearTimeout(this.timer);
             this.timer=null;
         }
+        redisClient.clearTurnDataInRedis(this.roomCode).catch(err => {
+            console.error(`[GameRoom:${this.roomCode}] Failed to clear turn data:`, err);
+        });
     }
 
-    getTimeElapsed(): number {
-        if (this.roundStartTime === 0) return 0;
-        return (Date.now() - this.roundStartTime) / 1000;
-    }
-
-    async addScore(playerId: string, score: number, timeElapsed : number): Promise<boolean> {
+    async addScore(playerId: string, score: number, timeElapsed : number): Promise<{ added: boolean, isTurnOver: boolean }> {
         const player = this.players.find(p => p.id === playerId);
         if (player) {
-            //player.score += score;
-            //this.turnTotalScore += score;
             const result : [number,number] = await redisClient.recordGuess(this.roomCode, player.id ,timeElapsed, this.players.length - 1);
             const wasNewGuess = result[0];
             if(!wasNewGuess){
-                return false;
+                return { added: false, isTurnOver: false };
             }
             player.score += score;
-            this.turnTotalScore += score;
-            this.isTurnOver = result[1];
-            return true;
+            
+            await redisClient.addTurnScoreInRedis(this.roomCode, score);
+            
+            redisClient.updatePlayerScoreInRedis(this.roomCode, player.id, player.score).catch(err => {
+                console.error(`[GameRoom:${this.roomCode}] Failed to update score for ${player.id} in Redis:`, err);
+            });
+            return { added: true, isTurnOver: result[1] === 1 };
         }
-        return false;
-    }
-
-    allGuessed(): boolean {
-        return this.isTurnOver?true:false;
-    }
-
-    setWord(word:string){
-        this.word= word;
+        return { added: false, isTurnOver: false };
     }
 
     startGame(settings?: {rounds?: number, drawTime?: number, maxPlayers?: number}){
@@ -170,12 +177,9 @@ export class gameRoom{
 
         this.players.forEach(p => p.score = 0);
         redisClient.clearSolvedSet(this.roomCode);
-        this.isTurnOver = 0;
-        this.turnTotalScore = 0;
         this.currentPlayer = 0;
         this.currentRound = 1;
         this.drawer = null;
-        this.word = "";
 
         this.machine.dispatch('RESTART');
     }
@@ -189,7 +193,6 @@ export class gameRoom{
             }
             return;
         }
-        this.turnTotalScore = 0;
         const turn = this.currentPlayer%this.players.length
 
         this.drawer = this.players[turn]; //this is the new drawer for this turn
@@ -201,26 +204,37 @@ export class gameRoom{
 
         if(this.currentRound>this.maxRounds){
             this.machine.dispatch('ALL_ROUNDS_END')
-            if(this.onGameOver){
-                const scores = this.players.map ((p)=>{
-                    return {id : p.id , score:p.score}
-                })
-                this.onGameOver({finalScores : scores})
-            }
+            const scores = this.players.map ((p)=>{
+                return {id : p.id , score:p.score}
+            })
+            const data = { finalScores : scores };
+            const io = getIO();
+            io.to(this.roomCode).emit("game:over", data);
+            flushQueue.add('flush-game', {
+                roomCode: this.roomCode,
+                finalScores: data.finalScores,
+                enqueuedAt: Date.now(),
+            }).catch((err: Error) => console.error(`[GameRoom:${this.roomCode}] Failed to enqueue flush job:`, err));
             return;
         }
         this.machine.dispatch('NEXT_TURN')
 
-        if(this.onTurnStart){
-            this.onTurnStart(this.drawer)
-        }
-
+        const io = getIO();
+        const words = WordBank.getRandomWords(3);
+        io.to(this.drawer?.socketId || "").emit("choose-word", { words });
+        
+        io.to(this.roomCode).emit("chat-message", {
+            sender: "System",
+            message: `${this.drawer?.name} is picking a word...`
+        });
     }
 
-    endTurn(shift?:boolean){
-        const startedAt = this.roundStartTime;
-        const endedWord = this.word;
-        this.word = "";
+    async endTurn(shift?:boolean){
+        const turnData = await redisClient.getTurnDataFromRedis(this.roomCode);
+        const endedWord = turnData.word || "";
+        const startedAt = turnData.roundStartTime || 0;
+        const currentTurnTotalScore = turnData.turnTotalScore || 0;
+
         if(this.players.length===0){
             if(this.timer){
                 clearTimeout(this.timer);
@@ -241,18 +255,20 @@ export class gameRoom{
 
         // Calculate and assign drawer score
         const numPotentialGuessers = this.players.length - 1;
-        const averageScore = numPotentialGuessers > 0 ? (this.turnTotalScore / numPotentialGuessers) : 0;
+        const averageScore = numPotentialGuessers > 0 ? (currentTurnTotalScore / numPotentialGuessers) : 0;
         
         if (this.drawer) {
             this.drawer.score += Math.floor(averageScore);
+            redisClient.updatePlayerScoreInRedis(this.roomCode, this.drawer.id, this.drawer.score).catch(err => {
+                console.error(`[GameRoom:${this.roomCode}] Failed to update drawer score:`, err);
+            });
         }
 
-        if(this.onRoundEnd){
-            const scores = this.players.map ((p)=>{
-                return {id : p.id , score:p.score}
-            })
-            this.onRoundEnd({word:endedWord , score : scores})
-        }
+        const scores = this.players.map ((p)=>{
+            return {id : p.id , score:p.score}
+        })
+        const io = getIO();
+        io.to(this.roomCode).emit("round-end", { word:endedWord , score : scores });
 
         if (endedWord && this.drawer) {
             redisClient.insertRoundData(
@@ -266,7 +282,6 @@ export class gameRoom{
         }
 
         redisClient.clearSolvedSet(this.roomCode);
-        this.isTurnOver = 0;
         this.startTurn();
     }
 }

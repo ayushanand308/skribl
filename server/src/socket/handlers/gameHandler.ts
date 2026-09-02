@@ -32,7 +32,7 @@ export function handleGame(socket: Socket , io : Server) {
         }
     });
 
-    socket.on('word-choosen' ,(payload)=>{
+    socket.on('word-choosen' , async (payload)=>{
         let {choosenWord , roomCode} = payload;
         console.log(`[GameHandler] word-choosen — room: ${roomCode}, word: ${choosenWord}`);
 
@@ -44,8 +44,7 @@ export function handleGame(socket: Socket , io : Server) {
             if(drawerSocket) {io.to(drawerSocket).emit("word-choosen", {choosenWord});}
         }
 
-        room?.setWord(choosenWord);
-        room?.startRoundTimer();
+        await room?.startRoundTimer(choosenWord);
         room?.machine.dispatch('WORD_PICKED')
 
         const wordHint = String(choosenWord).split('').map((char: string) => char === ' ' ? ' ' : '_').join(' ');

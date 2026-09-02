@@ -2,7 +2,6 @@ import { Socket , Server } from "socket.io";
 import RoomManager  from "../../services/roomManager";
 import { player } from "../../game/player";
 import { WordBank } from "../../game/wordBank";
-import { flushQueue } from "../../services/flushQueue";
 
 
 export function handleRoom(socket: Socket , io : Server ) {
@@ -29,33 +28,17 @@ export function handleRoom(socket: Socket , io : Server ) {
             gameState: 'LOBBY', 
             settings: { rounds: room.maxRounds, drawTime: room.drawTime, maxPlayers: room.maxPlayers } 
         });
-        room.onRoundEnd=((data: {word:string , score:{id:string, score:number}[]})=>{
-            io.to(roomCode).emit("round-end" , data)
-        })
-        
-        room.onTurnStart = (player: player) => {
-            const words = WordBank.getRandomWords(3);
-            io.to(player?.socketId).emit("choose-word", { words });
-            
-            socket.to(roomCode).emit("chat-message", {
-                sender: "System",
-                message: `${player?.name} is picking a word...`
-            });
-        };
 
-        room.onGameOver = (data) => {
-            io.to(roomCode).emit("game:over", data);
-            flushQueue.add('flush-game', {
-                roomCode,
-                finalScores: data.finalScores,
-                enqueuedAt: Date.now(),
-            }).catch((err: Error) => console.error(`[RoomHandler:${roomCode}] Failed to enqueue flush job:`, err));
-        };
     });
 
-    socket.on("room-join", (payload) => {
+    socket.on("room-join", async (payload) => {
         const { username, roomCode, id, avatar } = payload;
         const room = RoomManager.getRoom(roomCode);
+
+        if (room) {
+            await room.machine.syncFromRedis();
+            await room.syncPlayersFromRedis();
+        }
 
         let errorMsg = null;
         if (!room) errorMsg = "ROOM NOT FOUND";
