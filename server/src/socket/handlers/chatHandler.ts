@@ -7,7 +7,7 @@ import { redisClient } from "../../services/redisClient";
 export function handleChat(socket: Socket , io : Server) {
     socket.on("chat-message",async (payload)=>{
         const {message , roomCode , userId } = payload;
-        const room = RoomManager.getRoom(roomCode);
+        const room = await RoomManager.getRoom(roomCode);
         if (!room) return;
         
         await room.machine.syncFromRedis();

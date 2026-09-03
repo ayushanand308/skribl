@@ -303,6 +303,49 @@ export class RedisClient extends EventEmitter {
             'expireRoomKeys'
         );
     }
+
+
+    async registerRoom(roomCode: string, config: { hostId: string; maxRounds: number; drawTime: number; maxPlayers: number }): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hset(`room:${roomCode}:config`, {
+                    hostId: config.hostId,
+                    maxRounds: String(config.maxRounds),
+                    drawTime: String(config.drawTime),
+                    maxPlayers: String(config.maxPlayers),
+                });
+            },
+            undefined,
+            'registerRoom'
+        );
+    }
+
+    async getRoomConfig(roomCode: string): Promise<{ hostId: string; maxRounds: number; drawTime: number; maxPlayers: number } | null> {
+        return this.safeRedisCall(
+            async () => {
+                const raw = await this.client.hgetall(`room:${roomCode}:config`);
+                if (!raw || !raw.hostId) return null;
+                return {
+                    hostId: raw.hostId,
+                    maxRounds: Number(raw.maxRounds),
+                    drawTime: Number(raw.drawTime),
+                    maxPlayers: Number(raw.maxPlayers),
+                };
+            },
+            null,
+            'getRoomConfig'
+        );
+    }
+
+    async unregisterRoom(roomCode: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.del(`room:${roomCode}:config`);
+            },
+            undefined,
+            'unregisterRoom'
+        );
+    }
 }
 
 export const redisClient = new RedisClient();

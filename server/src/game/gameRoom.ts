@@ -4,12 +4,12 @@ import { player } from "./player";
 import { redisClient } from "../services/redisClient";
 import { getIO } from "../services/socketService";
 import { flushQueue } from "../services/flushQueue";
+import { timerQueue } from "../services/timerQueue";
 import { WordBank } from "./wordBank";
 
 export class gameRoom{
     machine: GameStateMachine
     players: player[]
-    timer: NodeJS.Timeout | null
     currentRound: number
     drawer: player | null = null;
     currentPlayer: number = 0;
@@ -28,7 +28,6 @@ export class gameRoom{
             console.error(`[GameRoom:${roomCode}] Failed to set initial LOBBY state in Redis:`, err);
         });
         this.players = [];
-        this.timer = null;
         this.currentRound = 1;
         this.maxRounds = maxRounds;
         this.drawTime = 60;
@@ -86,23 +85,20 @@ export class gameRoom{
             roundStartTime
         );
 
-        this.timer = setTimeout(async ()=>{
-            // Redis Validation: check if state is still DRAW before ending turn
-            const currentState = await redisClient.getRoomState(this.roomCode);
-            if (currentState !== 'DRAW') {
-                return; // Turn already ended by another instance
-            }
-            
-            this.machine.dispatch('GUESS_TIMER_EXPIRED');
-            await this.endTurn(false);
-        }, this.drawTime * 1000);
+        const jobId = `turn-timer:${this.roomCode}:${this.currentRound}`;
+        await timerQueue.add(
+            'turn-expire',
+            { roomCode: this.roomCode, round: this.currentRound },
+            { delay: this.drawTime * 1000, jobId }
+        );
+        console.log(`[GameRoom:${this.roomCode}] Scheduled BullMQ turn timer — job: ${jobId}, delay: ${this.drawTime}s`);
     }
 
     endRoundTimer(){
-        if(this.timer){
-            clearTimeout(this.timer);
-            this.timer=null;
-        }
+        const jobId = `turn-timer:${this.roomCode}:${this.currentRound}`;
+        timerQueue.remove(jobId).catch(err => {
+            console.warn(`[GameRoom:${this.roomCode}] Could not remove BullMQ timer job ${jobId}:`, (err as Error).message);
+        });
         redisClient.clearTurnDataInRedis(this.roomCode).catch(err => {
             console.error(`[GameRoom:${this.roomCode}] Failed to clear turn data:`, err);
         });
@@ -170,11 +166,6 @@ export class gameRoom{
 
         console.log(`[GameRoom:${this.roomCode}] Config — maxRounds: ${this.maxRounds}, drawTime: ${this.drawTime}s, maxPlayers: ${this.maxPlayers}`);
 
-        if (this.timer) {
-            clearTimeout(this.timer);
-            this.timer = null;
-        }
-
         this.players.forEach(p => p.score = 0);
         redisClient.clearSolvedSet(this.roomCode);
         this.currentPlayer = 0;
@@ -187,10 +178,6 @@ export class gameRoom{
 
     startTurn(){
         if(this.players.length===0){
-            if(this.timer){
-                clearTimeout(this.timer);
-                this.timer=null;
-            }
             return;
         }
         const turn = this.currentPlayer%this.players.length
@@ -236,10 +223,6 @@ export class gameRoom{
         const currentTurnTotalScore = turnData.turnTotalScore || 0;
 
         if(this.players.length===0){
-            if(this.timer){
-                clearTimeout(this.timer);
-                this.timer=null;
-            }
             return;
         }
         console.log(`[GameRoom:${this.roomCode}] endTurn — state: ${this.machine.getState()}, word: ${endedWord}, round: ${this.currentRound}/${this.maxRounds}`);

@@ -5,11 +5,11 @@ import { WordBank } from "../../game/wordBank";
 
 
 export function handleRoom(socket: Socket , io : Server ) {
-    socket.on("room-create", (payload) => {
+    socket.on("room-create", async (payload) => {
         const { username, id, avatar } = payload;
         const roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
 
-        const room = RoomManager.createRoom(roomCode, socket.id);
+        const room = await RoomManager.createRoom(roomCode, socket.id);
 
         room.addPlayer({
             id,
@@ -33,7 +33,7 @@ export function handleRoom(socket: Socket , io : Server ) {
 
     socket.on("room-join", async (payload) => {
         const { username, roomCode, id, avatar } = payload;
-        const room = RoomManager.getRoom(roomCode);
+        const room = await RoomManager.getRoom(roomCode);
 
         if (room) {
             await room.machine.syncFromRedis();
@@ -69,9 +69,9 @@ export function handleRoom(socket: Socket , io : Server ) {
         });
     });
 
-    socket.on("room-leave", (payload) => {
+    socket.on("room-leave", async (payload) => {
         const { roomCode } = payload;
-        const room = RoomManager.getRoom(roomCode);
+        const room = await RoomManager.getRoom(roomCode);
         
         if (room) {
             const playerId = room.getPlayerId(socket.id); // frontend id 
@@ -85,19 +85,19 @@ export function handleRoom(socket: Socket , io : Server ) {
             socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
             if(isHost){            
                 io.to(roomCode).emit("game-over", { reason: "host_left" });
-                RoomManager.destroyRoom(roomCode);
+                await RoomManager.destroyRoom(roomCode);
             }
             if(room.isEmpty()){
-                RoomManager.destroyRoom(roomCode);
+                await RoomManager.destroyRoom(roomCode);
             }
             RoomManager.removeSocketFromMap(socket.id);
         }
     });
 
-    socket.on("room:update-settings", (payload) =>{
+    socket.on("room:update-settings", async (payload) =>{
         const roomCode = [...socket.rooms].find((r) => r != socket.id)
         if (!roomCode) return;
-        const room = RoomManager.getRoom(roomCode);
+        const room = await RoomManager.getRoom(roomCode);
         if (!room || room.hostId !== socket.id) return;
 
         if (payload.rounds != null) room.maxRounds = payload.rounds;

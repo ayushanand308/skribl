@@ -13,6 +13,7 @@ import { redisClient } from "./services/redisClient";
 
 import { createAdapter } from "@socket.io/redis-adapter";
 import { startFlushWorker } from "./services/flushWorker";
+import { startTimerWorker } from "./services/timerWorker";
 import { setIO } from "./services/socketService";
 
 import { monitorEventLoopDelay } from "perf_hooks";
@@ -95,17 +96,17 @@ redisClient.on('status_changed', (healthy: boolean) => {
 io.on("connection", (socket) => {
   console.log(`[Socket] Client connected: ${socket.id}`);
   
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     const roomCode : string | undefined = RoomManager.getRoomCodeFromSocket(socket.id)
     let room ; 
     if(roomCode){
-      room = RoomManager.getRoom(roomCode);
+      room = await RoomManager.getRoom(roomCode);
     }
     
     if (room && roomCode) {
         RoomManager.removeSocketFromMap(socket.id);
-        const playerId = room.getPlayerId(socket.id); // frontend id 
-        const isHost = playerId === room.getPlayerId(room.hostId); //backend socket id
+        const playerId = room.getPlayerId(socket.id);
+        const isHost = playerId === room.getPlayerId(room.hostId);
 
         room.removePlayer(socket.id);
         const state = room.machine.getState();
@@ -116,10 +117,10 @@ io.on("connection", (socket) => {
         socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
         if(isHost){
             io.to(roomCode).emit("game-over", { reason: "host_left" });
-            RoomManager.destroyRoom(roomCode);
+            await RoomManager.destroyRoom(roomCode);
         }
         if(room.isEmpty()){
-            RoomManager.destroyRoom(roomCode);
+            await RoomManager.destroyRoom(roomCode);
         }
     }
     console.log(`[Socket] Client disconnected: ${socket.id}`);
@@ -134,4 +135,5 @@ const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`[Server] Listening on port ${PORT}`);
   startFlushWorker();
+  startTimerWorker();
 });

@@ -4,10 +4,10 @@ import { Server } from "socket.io";
 import { WordBank } from "../../game/wordBank";
 
 export function handleGame(socket: Socket , io : Server) {
-    socket.on("game-start",(payload)=>{
+    socket.on("game-start", async (payload)=>{
         const {userName , roomCode, settings} = payload;
         console.log(`[GameHandler] game-start — room: ${roomCode}, settings:`, settings);
-        const room = RoomManager.getRoom(roomCode);
+        const room = await RoomManager.getRoom(roomCode);
 
         if(room){
             room.startGame(settings);
@@ -21,11 +21,11 @@ export function handleGame(socket: Socket , io : Server) {
         }
     });
 
-    socket.on("game:play-again", (payload) => {
+    socket.on("game:play-again", async (payload) => {
         const { roomCode } = payload;
         if (!roomCode) return;
 
-        const room = RoomManager.getRoom(roomCode);
+        const room = await RoomManager.getRoom(roomCode);
         if (room) {
             room.restartGame();
             io.to(roomCode).emit("game:back-to-lobby");
@@ -36,7 +36,7 @@ export function handleGame(socket: Socket , io : Server) {
         let {choosenWord , roomCode} = payload;
         console.log(`[GameHandler] word-choosen — room: ${roomCode}, word: ${choosenWord}`);
 
-        const room = RoomManager.getRoom(roomCode);
+        const room = await RoomManager.getRoom(roomCode);
         const drawerSocket = room?.drawer?.socketId;
 
         if(room && choosenWord === ''){
