@@ -119,11 +119,17 @@ export class GameStateMachine {
         return this.currentState;
     }
 
-    dispatch(event : events) : gameState{
+    async dispatch(event : events) : Promise<gameState>{
         const prev = this.currentState;
         this.currentState = dispatch(this.currentState, event);
+        
+        if (this.currentState === 'LOBBY') {
+            console.warn(`[StateMachine:${this.roomCode}] ⚠️ Writing LOBBY to Redis. Triggered by event: ${event} from state: ${prev}`);
+            console.warn(new Error('[StateMachine] LOBBY write stack trace').stack);
+        }
+        
         if (this.roomCode) {
-            redisClient.setRoomState(this.roomCode, this.currentState).catch(err => {
+            await redisClient.setRoomState(this.roomCode, this.currentState).catch(err => {
                 console.error(`[GameStateMachine:${this.roomCode}] Failed to sync state to Redis:`, err);
             });
         }

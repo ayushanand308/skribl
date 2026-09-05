@@ -11,6 +11,8 @@ export function handleChat(socket: Socket , io : Server) {
         if (!room) return;
         
         await room.machine.syncFromRedis();
+        await room.syncPlayersFromRedis();
+        await room.syncTurnStateFromRedis();
 
         if (room.machine.getState() !== 'DRAW') {
             const sender = room.players.find((p) => p.id === userId);
@@ -45,7 +47,7 @@ export function handleChat(socket: Socket , io : Server) {
             const { added, isTurnOver } = await room.addScore(userId, score, timeElapsed);
             if (!added) return;
 
-            redisClient.insertGuessData(
+            await redisClient.insertGuessData(
                 roomCode,
                 room.currentRound,
                 userId,
@@ -66,11 +68,11 @@ export function handleChat(socket: Socket , io : Server) {
             });
 
             if (isTurnOver) {
-                room.machine.dispatch('ALL_GUESSED');
+                await room.machine.dispatch('ALL_GUESSED');
                 await room.endTurn();
             }
         } else if (matchType === 'close') {
-            redisClient.insertGuessData(
+            await redisClient.insertGuessData(
                 roomCode,
                 room.currentRound,
                 userId,

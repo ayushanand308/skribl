@@ -5,10 +5,13 @@
   "scripts": {
     "start": "node server/dist/index.js",
     "dev:server": "nodemon",
-    "dev:client": "npx -y http-server client -p 3001",
+    "dev:client": "npx -y http-server client -p 3001 -c-1",
     "build": "tsc",
     "db:seed": "prisma db seed",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:integration": "node server/testScripts/integration.test.js",
+    "test:integration:verbose": "node server/testScripts/integration.test.js --url=http://127.0.0.1:3000",
+    "test:frontend": "node server/testScripts/frontend.test.js"
   },
   "author": "",
   "license": "ISC",
@@ -34,6 +37,7 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^25.3.2",
     "nodemon": "^3.1.14",
+    "puppeteer": "^25.10.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },

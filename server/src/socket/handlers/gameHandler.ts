@@ -1,24 +1,29 @@
 import { Socket } from "socket.io";
-import RoomManager  from "../../services/roomManager";
+import RoomManager from "../../services/roomManager";
 import { Server } from "socket.io";
 import { WordBank } from "../../game/wordBank";
+import { redisClient } from "../../services/redisClient";
 
-export function handleGame(socket: Socket , io : Server) {
+export function handleGame(socket: Socket, io: Server) {
     socket.on("game-start", async (payload)=>{
         const {userName , roomCode, settings} = payload;
-        console.log(`[GameHandler] game-start — room: ${roomCode}, settings:`, settings);
+        const startTracker = Date.now();
+        console.log(`[GameHandler] game-start triggered for room: ${roomCode} at ${startTracker}`);
+        
         const room = await RoomManager.getRoom(roomCode);
 
         if(room){
-            room.startGame(settings);
+            await room.machine.syncFromRedis();
+            await room.syncPlayersFromRedis();
+            
+            await room.startGame(settings);
+            
             io.to(roomCode).emit("game-started", { roomCode });
-            const words = WordBank.getRandomWords(3);
-            const drawerSocket = room.drawer?.socketId;
-            if (drawerSocket) {
-                console.log(`[GameHandler] Sending choose-word to drawer: ${drawerSocket}`);
-                io.to(drawerSocket).emit("choose-word", { words });
-            }
+            
+        } else {
+            console.log(`[GameHandler] ERROR: Room ${roomCode} not found.`);
         }
+        console.log(`[GameHandler] game-start handler finished. Total time: ${Date.now() - startTracker}ms`);
     });
 
     socket.on("game:play-again", async (payload) => {
@@ -27,7 +32,9 @@ export function handleGame(socket: Socket , io : Server) {
 
         const room = await RoomManager.getRoom(roomCode);
         if (room) {
-            room.restartGame();
+            await room.machine.syncFromRedis();
+            await room.syncPlayersFromRedis();
+            await room.restartGame();
             io.to(roomCode).emit("game:back-to-lobby");
         }
     });
@@ -37,15 +44,21 @@ export function handleGame(socket: Socket , io : Server) {
         console.log(`[GameHandler] word-choosen — room: ${roomCode}, word: ${choosenWord}`);
 
         const room = await RoomManager.getRoom(roomCode);
-        const drawerSocket = room?.drawer?.socketId;
+        if (!room) return;
 
-        if(room && choosenWord === ''){
+        await room.machine.syncFromRedis();
+        await room.syncPlayersFromRedis();
+        await room.syncTurnStateFromRedis();
+
+        const drawerSocket = room.drawer?.socketId;
+
+        if(choosenWord === ''){
             choosenWord = WordBank.getRandomWords(1)[0];
             if(drawerSocket) {io.to(drawerSocket).emit("word-choosen", {choosenWord});}
         }
 
-        await room?.startRoundTimer(choosenWord);
-        room?.machine.dispatch('WORD_PICKED')
+        await room.startRoundTimer(choosenWord);
+        await room.machine.dispatch('WORD_PICKED')
 
         const wordHint = String(choosenWord).split('').map((char: string) => char === ' ' ? ' ' : '_').join(' ');
 
@@ -58,13 +71,24 @@ export function handleGame(socket: Socket , io : Server) {
             round: room?.currentRound,
             maxRounds: room?.maxRounds,
             players: room?.players,
+            settings: { drawTime: room?.drawTime, rounds: room?.maxRounds, maxPlayers: room?.maxPlayers },
         });
     })
 
-    socket.on('stroke' , (payload) =>{
-        const {roomCode , strokeType} = payload;
-        const strokeEvent = `stroke-${strokeType}`
-        socket.to(roomCode).emit(strokeEvent , payload);
-    })
+    socket.on('stroke', async (payload) => {
+        const { roomCode, strokeType, ...stroke } = payload;
+        const strokeEvent = `stroke-${strokeType}`;
+        socket.to(roomCode).emit(strokeEvent, payload);
+
+        if (strokeType === 'draw' || strokeType === 'fill') {
+            await redisClient.appendStrokeToRedis(roomCode, { type: strokeType, ...stroke }).catch(err => 
+                console.error(`[GameHandler:${roomCode}] Failed to append stroke to Redis:`, err)
+            );
+        } else if (strokeType === 'clear') {
+            await redisClient.clearStrokesInRedis(roomCode).catch(err => 
+                console.error(`[GameHandler:${roomCode}] Failed to clear strokes in Redis:`, err)
+            );
+        }
+    });
 
 }

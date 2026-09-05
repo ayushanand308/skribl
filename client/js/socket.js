@@ -1,4 +1,4 @@
-const SocketClient = (() => {
+var SocketClient = (() => {
     let socket = null;
     const listeners = new Map();
 
@@ -127,5 +127,5 @@ const SocketClient = (() => {
         }
     }
 
-    return { connect, emit, on, once, isConnected, getSocketId, disconnect };
+    return { connect, emit, on, once, isConnected, getSocketId, disconnect, _dispatch };
 })();

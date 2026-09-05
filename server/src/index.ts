@@ -27,7 +27,7 @@ setInterval(() => {
   const meanMs = (eventLoopHistogram.mean / 1e6).toFixed(1);
   const p95Ms = (eventLoopHistogram.percentile(95) / 1e6).toFixed(1);
   const maxMs = (eventLoopHistogram.max / 1e6).toFixed(1);
-  if (parseFloat(p95Ms) > 10) {
+  if (parseFloat(p95Ms) > 100) {
     console.warn(`[EventLoopLag] MEAN: ${meanMs}ms | p95: ${p95Ms}ms | MAX: ${maxMs}ms`);
   }
   eventLoopHistogram.reset();
@@ -104,24 +104,38 @@ io.on("connection", (socket) => {
     }
     
     if (room && roomCode) {
+        await room.machine.syncFromRedis();
+        await room.syncPlayersFromRedis();
+        await room.syncTurnStateFromRedis();
         RoomManager.removeSocketFromMap(socket.id);
         const playerId = room.getPlayerId(socket.id);
-        const isHost = playerId === room.getPlayerId(room.hostId);
+        const isHost = playerId === room.hostId;
 
-        room.removePlayer(socket.id);
         const state = room.machine.getState();
-        if(state !== 'LOBBY' && state !== 'GAME_END' && (room.players.length < 2 || playerId === room.drawer?.socketId)){
-          room.endTurn(true);
+
+        if (state === 'LOBBY' || state === 'GAME_END') {
+            await room.removePlayer(socket.id);
+            socket.to(roomCode).emit("player-left", { playerId, isHost });
+            
+            if (isHost || room.isEmpty()) {
+                io.to(roomCode).emit("game-over", { reason: "host_left" });
+                await RoomManager.destroyRoom(roomCode);
+            }
+        } else {
+            if (playerId) {
+                await room.updatePlayerSocketId(playerId, "");
+            }
+            socket.to(roomCode).emit("player-left", { playerId, isHost });
+            if (playerId === room.drawer?.id || room.players.length < 2) {
+                room.endTurn(true);
+            }
+            
+            if (room.isEmpty()) {
+                await RoomManager.destroyRoom(roomCode);
+            }
         }
+        
         socket.leave(roomCode);
-        socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
-        if(isHost){
-            io.to(roomCode).emit("game-over", { reason: "host_left" });
-            await RoomManager.destroyRoom(roomCode);
-        }
-        if(room.isEmpty()){
-            await RoomManager.destroyRoom(roomCode);
-        }
     }
     console.log(`[Socket] Client disconnected: ${socket.id}`);
   });

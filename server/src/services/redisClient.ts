@@ -143,6 +143,21 @@ export class RedisClient extends EventEmitter {
             'updatePlayerScoreInRedis'
         );
     }
+    async updatePlayerSocketIdInRedis(roomCode: string, playerId: string, newSocketId: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                const playerJson = await this.client.hget(`room:${roomCode}:players`, playerId);
+                if (playerJson) {
+                    const p = JSON.parse(playerJson);
+                    p.socketId = newSocketId;
+                    await this.client.hset(`room:${roomCode}:players`, playerId, JSON.stringify(p));
+                }
+            },
+            undefined,
+            'updatePlayerSocketIdInRedis'
+        );
+    }
+
     async setTurnDataInRedis(roomCode: string, word: string, drawerId: string, roundStartTime: number): Promise<void> {
         return this.safeRedisCall(
             async () => {
@@ -156,6 +171,62 @@ export class RedisClient extends EventEmitter {
             undefined,
             'setTurnDataInRedis'
         );
+    }
+
+    async setPickWords(roomCode: string, words: string[]): Promise<void> {
+        return this.safeRedisCall(async () => {
+            await this.client.setex(`room:${roomCode}:pick_words`, 20, JSON.stringify(words));
+        }, undefined, 'setPickWords');
+    }
+
+    async getPickWords(roomCode: string): Promise<string[] | null> {
+        return this.safeRedisCall(async () => {
+            const raw = await this.client.get(`room:${roomCode}:pick_words`);
+            return raw ? JSON.parse(raw) : null;
+        }, null, 'getPickWords');
+    }
+
+    async setRoomTurnState(roomCode: string, currentPlayer: number, currentRound: number, drawerId: string | undefined): Promise<void> {
+        return this.safeRedisCall(async () => {
+            await this.client.hset(`room:${roomCode}:meta`, {
+                currentPlayer,
+                currentRound,
+                drawerId: drawerId || ''
+            });
+        }, undefined, 'setRoomTurnState');
+    }
+
+    async getRoomTurnState(roomCode: string): Promise<{ currentPlayer: number; currentRound: number; drawerId: string } | null> {
+        return this.safeRedisCall(async () => {
+            const raw = await this.client.hgetall(`room:${roomCode}:meta`);
+            if (raw && raw.currentPlayer != null) {
+                return {
+                    currentPlayer: Number(raw.currentPlayer),
+                    currentRound: Number(raw.currentRound),
+                    drawerId: raw.drawerId
+                };
+            }
+            return null;
+        }, null, 'getRoomTurnState');
+    }
+
+    async appendStrokeToRedis(roomCode: string, stroke: any): Promise<void> {
+        return this.safeRedisCall(async () => {
+            await this.client.rpush(`room:${roomCode}:strokes`, JSON.stringify(stroke));
+        }, undefined, 'appendStrokeToRedis');
+    }
+
+    async getStrokesFromRedis(roomCode: string): Promise<any[]> {
+        return this.safeRedisCall(async () => {
+            const raw = await this.client.lrange(`room:${roomCode}:strokes`, 0, -1);
+            return raw ? raw.map((r: string) => JSON.parse(r)) : [];
+        }, [], 'getStrokesFromRedis');
+    }
+
+    async clearStrokesInRedis(roomCode: string): Promise<void> {
+        return this.safeRedisCall(async () => {
+            await this.client.del(`room:${roomCode}:strokes`);
+        }, undefined, 'clearStrokesInRedis');
     }
 
     async addTurnScoreInRedis(roomCode: string, score: number): Promise<void> {
@@ -211,9 +282,7 @@ export class RedisClient extends EventEmitter {
                     maxRounds: gameMeta.maxRounds,
                     drawTimeSecs: gameMeta.drawTimeSecs,
                     startedAt: Date.now(),
-                    state: 'LOBBY',
                 });
-                await this.client.set(`room:${gameMeta.roomCode}:state`, 'LOBBY');
                 await this.client.set(
                     `room:${gameMeta.roomCode}:participants`,
                     JSON.stringify(gameParticipants)

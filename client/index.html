@@ -223,14 +223,24 @@
     </div>
   </div>
 
+  <div class="overlay" id="overlay-reconnecting" style="display:none; z-index: 9999; backdrop-filter: blur(5px);">
+    <div class="overlay-card">
+      <h2 class="overlay-title blink-text">CONNECTION LOST</h2>
+      <p class="overlay-subtitle">Attempting to reconnect to server...</p>
+      <div class="word-timer-bar" style="margin-top: 20px;">
+        <div class="word-timer-fill" style="width: 100%; animation: pulse 1s infinite alternate;"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toast-container"></div>
 
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-  <script src="js/socket.js"></script>
-  <script src="js/canvas.js"></script>
-  <script src="js/chat.js"></script>
-  <script src="js/lobby.js"></script>
-  <script src="js/game.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/socket.js?v=2"></script>
+  <script src="js/canvas.js?v=2"></script>
+  <script src="js/chat.js?v=2"></script>
+  <script src="js/lobby.js?v=2"></script>
+  <script src="js/game.js?v=2"></script>
+  <script src="js/app.js?v=2"></script>
 </body>
 </html>

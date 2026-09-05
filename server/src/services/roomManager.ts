@@ -15,6 +15,10 @@ class RoomManager{
             maxPlayers: newRoom.maxPlayers,
         }).catch(err => console.error(`[RoomManager] Failed to register room ${roomCode} in Redis:`, err));
 
+        await redisClient.setRoomState(roomCode, "LOBBY").catch(err => {
+            console.error(`[RoomManager] Failed to set initial LOBBY state in Redis:`, err);
+        });
+
         return newRoom;
     }
 
@@ -35,7 +39,14 @@ class RoomManager{
         reconstructed.maxPlayers = config.maxPlayers;
 
         await reconstructed.machine.syncFromRedis();
-        await reconstructed.syncPlayersFromRedis();
+        let players = await reconstructed.syncPlayersFromRedis();
+
+        const turnState = await redisClient.getRoomTurnState(roomCode);
+        if (turnState) {
+            reconstructed.currentPlayer = turnState.currentPlayer;
+            reconstructed.currentRound = turnState.currentRound;
+            reconstructed.drawer = players.find(p => p.id === turnState.drawerId) || null;
+        }
 
         this.map.set(roomCode, reconstructed);
         console.log(`[RoomManager] Room ${roomCode} successfully reconstructed with ${reconstructed.players.length} players.`);
@@ -44,7 +55,7 @@ class RoomManager{
 
     async destroyRoom(roomCode: string): Promise<void> {
         this.map.delete(roomCode);
-        redisClient.unregisterRoom(roomCode).catch(err =>
+        await redisClient.unregisterRoom(roomCode).catch(err =>
             console.error(`[RoomManager] Failed to unregister room ${roomCode} from Redis:`, err)
         );
     }

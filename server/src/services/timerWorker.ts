@@ -2,10 +2,13 @@ import { Worker, Job } from 'bullmq';
 import { bullMQConnection, TIMER_QUEUE_NAME } from './timerQueue';
 import RoomManager from './roomManager';
 import { redisClient } from './redisClient';
+import { WordBank } from '../game/wordBank';
+import { getIO } from './socketService';
 
 interface TimerJobData {
     roomCode: string;
     round: number;
+    type?: 'pick' | 'draw';
 }
 
 export function startTimerWorker() {
@@ -33,7 +36,44 @@ export function startTimerWorker() {
                 return;
             }
 
-            room.machine.dispatch('GUESS_TIMER_EXPIRED');
+            await room.machine.syncFromRedis();
+            await room.syncPlayersFromRedis();
+            await room.syncTurnStateFromRedis();
+            const localState = room.machine.getState();
+            
+            const isPickTimer = job.data.type === 'pick';
+            
+            if (isPickTimer) {
+                if (localState !== 'PICK_WORD') {
+                    console.log(`[TimerWorker] Local state mismatch after Redis sync (expected PICK_WORD): ${localState} — skipping.`);
+                    return;
+                }
+                console.log(`[TimerWorker] Pick timer expired for room ${roomCode}. Auto-picking word.`);
+                const words = await redisClient.getPickWords(roomCode);
+                const choosenWord = words ? words[0] : WordBank.getRandomWords(1)[0];
+                
+                await room.startRoundTimer(choosenWord);
+                await room.machine.dispatch('WORD_PICKED');
+                
+                const wordHint = String(choosenWord).split('').map((char: string) => char === ' ' ? ' ' : '_').join(' ');
+                getIO().to(roomCode).emit("round-started", { 
+                    roomCode, 
+                    wordHint,
+                    drawerId: room?.drawer?.id,
+                    timeLeft: room?.drawTime,
+                    round: room?.currentRound,
+                    maxRounds: room?.maxRounds,
+                    players: room?.players,
+                });
+                return;
+            }
+
+            if (localState !== 'DRAW') {
+                console.log(`[TimerWorker] Local state mismatch after Redis sync (expected DRAW): ${localState} — skipping.`);
+                return;
+            }
+
+            await room.machine.dispatch('GUESS_TIMER_EXPIRED');
             await room.endTurn(false);
         },
         {

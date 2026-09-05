@@ -1,4 +1,4 @@
-const GameModule = (() => {
+var GameModule = (() => {
     let currentRound = 0;
     let maxRounds = 3;
     let drawTime = 60;
@@ -74,8 +74,8 @@ const GameModule = (() => {
         console.log('[Game] _onRoundStart — drawerId:', data.drawerId, 'myPlayerId:', myPlayerId, 'isDrawer:', isDrawer);
         currentRound = data.round || currentRound;
         maxRounds = data.maxRounds || maxRounds;
-        drawTime = data.timeLeft || drawTime;
-        timeLeft = data.timeLeft || drawTime;
+        drawTime = (data.settings && data.settings.drawTime) || drawTime;
+        timeLeft = data.timeLeft !== undefined ? data.timeLeft : drawTime;
         players = data.players || players;
 
         document.getElementById('game-round').textContent = `${currentRound} / ${maxRounds}`;
@@ -83,6 +83,8 @@ const GameModule = (() => {
         _renderWordHint(data.wordHint);
 
         CanvasModule.reset();
+        
+        _clearWordPickerTimer();
 
         if (isDrawer) {
             CanvasModule.enableDrawing();
@@ -143,6 +145,7 @@ const GameModule = (() => {
 
     function _onRoundEnd(data) {
         _stopTimer();
+        _clearWordPickerTimer();
         isDrawer = false;
         chosenWord = null;
         timeLeft = 0;
@@ -193,8 +196,10 @@ const GameModule = (() => {
 
     function _onGameOver(data) {
         _stopTimer();
+        _clearWordPickerTimer();
         isDrawer = false;
         chosenWord = null;
+        currentDrawerId = null;
 
         console.log('[Game] _onGameOver — data:', data);
 
@@ -243,6 +248,7 @@ const GameModule = (() => {
             .join('');
 
         document.getElementById('overlay-round-end').style.display = 'none';
+        document.getElementById('overlay-word-picker').style.display = 'none';
         document.getElementById('overlay-game-over').style.display = '';
     }
 
@@ -347,15 +353,53 @@ const GameModule = (() => {
         players = data.players || [];
         currentRound = data.round || 1;
         maxRounds = data.maxRounds || 3;
-        if (data.strokes) {
+        myPlayerId = LobbyModule.getMyPlayerId();
+        
+        CanvasModule.reset();
+        if (data.strokes && data.strokes.length > 0) {
             CanvasModule.loadStrokes(data.strokes);
         }
         _renderSidebar();
+
+        if (data.gameState === 'DRAW') {
+            currentDrawerId = data.drawerId;
+            isDrawer = data.drawerId === myPlayerId;
+            
+            if (data.fullWord && isDrawer) {
+                chosenWord = data.fullWord;
+                _renderWordHint(data.fullWord, true);
+                ChatModule.addSystemMessage(`>> YOUR WORD: ${chosenWord.toUpperCase()} <<`);
+            } else if (data.wordHint) {
+                _renderWordHint(data.wordHint, false);
+            }
+
+            if (isDrawer) {
+                CanvasModule.enableDrawing();
+                ChatModule.disable("YOU'RE DRAWING! NO CHAT.");
+            } else {
+                CanvasModule.disableDrawing();
+                ChatModule.enable('Type your guess...');
+                const drawerName = _getPlayerName(data.drawerId);
+                ChatModule.addSystemMessage(`>> ${drawerName} IS DRAWING! <<`);
+            }
+
+            if (data.timeLeft !== undefined) {
+                _startTimer(data.timeLeft);
+            }
+        }
+        
+        document.getElementById('overlay-word-picker').style.display = 'none';
+        document.getElementById('overlay-round-end').style.display = 'none';
+        document.getElementById('overlay-game-over').style.display = 'none';
+        if (roundEndTimeout) {
+            clearTimeout(roundEndTimeout);
+            roundEndTimeout = null;
+        }
     }
 
     function setPlayers(p) {
         players = p;
     }
 
-    return { init, handleReconnect, setPlayers };
+    return { init, handleReconnect, setPlayers, _onPickWord, _onRoundStart };
 })();

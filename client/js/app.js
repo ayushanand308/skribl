@@ -11,6 +11,15 @@ const App = (() => {
         });
     }
 
+    function _getMyPlayerId() {
+        let id = sessionStorage.getItem('skribl_player_id');
+        if (!id) {
+            id = _generateId();
+            sessionStorage.setItem('skribl_player_id', id);
+        }
+        return id;
+    }
+
     function init() {
         _initTheme();
         CanvasModule.init();
@@ -34,15 +43,25 @@ const App = (() => {
 
         SocketClient.on('_connected', () => {
             toast('>> CONNECTED! <<', 'success');
+            const roomCode = LobbyModule.getRoomCode();
+            if (roomCode) {
+                SocketClient.emit('room-reconnect', {
+                    roomCode,
+                    id: _getMyPlayerId()
+                });
+            }
         });
         SocketClient.on('_disconnected', (data) => {
             toast(`DISCONNECTED: ${data.reason}`, 'warning');
+            document.getElementById('overlay-reconnecting').style.display = '';
         });
         SocketClient.on('_reconnecting', (data) => {
             toast(`RECONNECTING... (${data.attempt})`, 'info');
+            document.getElementById('overlay-reconnecting').style.display = '';
         });
         SocketClient.on('_reconnected', () => {
             toast('>> RECONNECTED! <<', 'success');
+            document.getElementById('overlay-reconnecting').style.display = 'none';
         });
         SocketClient.on('_error', (data) => {
             toast(`ERROR: ${data.message}`, 'error');
@@ -64,7 +83,11 @@ const App = (() => {
             if (data.gameState === 'LOBBY' || !data.gameState) {
                 showScreen('lobby');
                 ChatModule.clear();
+            } else {
+                GameModule.handleReconnect(data);
+                showScreen('game');
             }
+            document.getElementById('overlay-reconnecting').style.display = 'none';
         });
 
         SocketClient.on('round-started', () => {
@@ -125,7 +148,7 @@ const App = (() => {
 
         SocketClient.emit('room-create', {
             username: name,
-            id: _generateId(),
+            id: _getMyPlayerId(),
             avatar: selectedAvatar,
         });
     }
@@ -145,7 +168,7 @@ const App = (() => {
         SocketClient.emit('room-join', {
             roomCode: code,
             username: name,
-            id: _generateId(),
+            id: _getMyPlayerId(),
             avatar: selectedAvatar,
         });
     }
