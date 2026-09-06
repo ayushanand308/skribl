@@ -2,7 +2,7 @@ var SocketClient = (() => {
     let socket = null;
     const listeners = new Map();
 
-    function connect(serverUrl = 'http://localhost:3000') {
+    function connect(serverUrl = 'https://skriblbe.asyncayush.dev') {
         if (socket && socket.connected) return;
 
         socket = io(serverUrl, {
