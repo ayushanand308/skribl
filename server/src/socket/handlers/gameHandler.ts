@@ -15,10 +15,15 @@ export function handleGame(socket: Socket, io: Server) {
         if(room){
             await room.machine.syncFromRedis();
             await room.syncPlayersFromRedis();
+            await room.syncConfigFromRedis();
             
-            await room.startGame(settings);
+            if (!room.isHost(socket.id)) {
+                console.warn(`[GameHandler] Non-host socket ${socket.id} tried to start game in ${roomCode}`);
+                return;
+            }
             
             io.to(roomCode).emit("game-started", { roomCode });
+            await room.startGame(settings);
             
         } else {
             console.log(`[GameHandler] ERROR: Room ${roomCode} not found.`);
@@ -34,6 +39,7 @@ export function handleGame(socket: Socket, io: Server) {
         if (room) {
             await room.machine.syncFromRedis();
             await room.syncPlayersFromRedis();
+            await room.syncConfigFromRedis();
             await room.restartGame();
             io.to(roomCode).emit("game:back-to-lobby");
         }
@@ -52,8 +58,8 @@ export function handleGame(socket: Socket, io: Server) {
 
         const drawerSocket = room.drawer?.socketId;
 
-        if(choosenWord === ''){
-            choosenWord = WordBank.getRandomWords(1)[0];
+        if(!choosenWord || choosenWord === ''){
+            choosenWord = WordBank.getRandomWords(1, room.customWords, room.customWordsOnly, room.usedWords)[0];
             if(drawerSocket) {io.to(drawerSocket).emit("word-choosen", {choosenWord});}
         }
 
@@ -63,7 +69,7 @@ export function handleGame(socket: Socket, io: Server) {
         const wordHint = String(choosenWord).split('').map((char: string) => char === ' ' ? ' ' : '_').join(' ');
 
         console.log(`[GameHandler] Emitting round-started — room: ${roomCode}, drawerId: ${room?.drawer?.id}, drawTime: ${room?.drawTime}`);
-        io.to(roomCode).emit("round-started", { 
+        const basePayload = { 
             roomCode, 
             wordHint,
             drawerId: room?.drawer?.id,
@@ -72,7 +78,17 @@ export function handleGame(socket: Socket, io: Server) {
             maxRounds: room?.maxRounds,
             players: room?.players,
             settings: { drawTime: room?.drawTime, rounds: room?.maxRounds, maxPlayers: room?.maxPlayers },
-        });
+        };
+
+        if (drawerSocket) {
+            io.to(roomCode).except(drawerSocket).emit("round-started", basePayload);
+            io.to(drawerSocket).emit("round-started", {
+                ...basePayload,
+                fullWord: choosenWord,
+            });
+        } else {
+            io.to(roomCode).emit("round-started", basePayload);
+        }
     })
 
     socket.on('stroke', async (payload) => {
@@ -91,4 +107,19 @@ export function handleGame(socket: Socket, io: Server) {
         }
     });
 
+    socket.on("drawer:reaction", async (payload: { roomCode: string; type: 'HOT' | 'COLD' | 'PING'; x?: number; y?: number }) => {
+        const { roomCode, type, x, y } = payload;
+        if (!roomCode || !type) return;
+        const room = await RoomManager.getRoom(roomCode);
+        if (!room) return;
+
+        if (room.drawer?.socketId !== socket.id) return;
+
+        io.to(roomCode).emit("drawer:reaction", {
+            type,
+            x,
+            y,
+            drawerName: room.drawer.name,
+        });
+    });
 }

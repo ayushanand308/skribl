@@ -29,12 +29,11 @@ export function startFlushWorker() {
 
     worker.on('failed', (job: Job | undefined, err: Error) => {
         if (job) {
-            const maxAttempts = job.opts?.attempts ?? 5;
             console.error(
-                `[FlushWorker] Job ${job.id} failed (attempt ${job.attemptsMade}/${maxAttempts}):`,
+                `[FlushWorker] Job ${job.id} failed (attempt ${job.attemptsMade}/${job.opts.attempts}):`,
                 err.message
             );
-            if (job.attemptsMade >= maxAttempts) {
+            if (job.attemptsMade >= (job.opts.attempts ?? 1)) {
                 console.error(`[FlushWorker] Job ${job.id} exhausted all retries. Room ${job.data.roomCode} data is permanently lost.`);
             }
         }

@@ -77,6 +77,8 @@ const App = (() => {
 
         SocketClient.on('room:error', (data) => {
             toast(`ERROR: ${data.message || 'SOMETHING WENT WRONG'}`, 'error');
+            document.getElementById('overlay-reconnecting').style.display = 'none';
+            showScreen('home');
         });
 
         SocketClient.on('room-joined', (data) => {
@@ -88,6 +90,10 @@ const App = (() => {
                 showScreen('game');
             }
             document.getElementById('overlay-reconnecting').style.display = 'none';
+        });
+
+        SocketClient.on('game-started', () => {
+            showScreen('game');
         });
 
         SocketClient.on('round-started', () => {

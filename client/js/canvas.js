@@ -9,6 +9,9 @@ const CanvasModule = (() => {
     let currentStroke = [];
     let strokeHistory = [];
     let lastPoint = null;
+    let isPingMode = false;
+    let lastReactionTime = 0;
+    let timelapseAnimId = null;
 
     function init() {
         canvas = document.getElementById('draw-canvas');
@@ -39,10 +42,23 @@ const CanvasModule = (() => {
         document.getElementById('btn-clear').addEventListener('click', _clearCanvas);
         document.getElementById('btn-fill').addEventListener('click', _fill);
 
+        const hotBtn = document.getElementById('btn-react-hot');
+        const coldBtn = document.getElementById('btn-react-cold');
+        const pingBtn = document.getElementById('btn-react-ping');
+        if (hotBtn) hotBtn.addEventListener('click', () => _sendReaction('HOT'));
+        if (coldBtn) coldBtn.addEventListener('click', () => _sendReaction('COLD'));
+        if (pingBtn) pingBtn.addEventListener('click', _togglePingMode);
+
+        const reactionOverlay = document.getElementById('reaction-overlay');
+        if (reactionOverlay) {
+            reactionOverlay.addEventListener('click', _onReactionOverlayClick);
+        }
+
         SocketClient.on('stroke-draw', _onRemoteStroke);
         SocketClient.on('stroke-clear', _onRemoteClear);
         SocketClient.on('stroke-fill', _onRemoteFill);
         SocketClient.on('stroke-undo', _onRemoteUndo);
+        SocketClient.on('drawer:reaction', _onRemoteReaction);
 
         window.addEventListener('resize', _resizeCanvas);
     }
@@ -66,6 +82,12 @@ const CanvasModule = (() => {
         canvas.style.width = Math.floor(w) + 'px';
         canvas.style.height = Math.floor(h) + 'px';
 
+        const reactionOverlay = document.getElementById('reaction-overlay');
+        if (reactionOverlay) {
+            reactionOverlay.style.width = canvas.style.width;
+            reactionOverlay.style.height = canvas.style.height;
+        }
+
         canvas.width = 800;
         canvas.height = 600;
 
@@ -84,6 +106,10 @@ const CanvasModule = (() => {
     function _onPointerDown(e) {
         console.log('[Canvas] pointerdown, isDrawer:', isDrawer);
         if (!isDrawer) return;
+        if (isPingMode) {
+            _handlePingAtEvent(e);
+            return;
+        }
         e.preventDefault();
         canvas.setPointerCapture(e.pointerId);
         isDrawing = true;
@@ -282,6 +308,191 @@ const CanvasModule = (() => {
         _redrawAll();
     }
 
+    function _sendReaction(type) {
+        if (!isDrawer) return;
+        const now = Date.now();
+        if (now - lastReactionTime < 1200) {
+            App.toast('WAIT BEFORE SENDING ANOTHER REACTION', 'warning');
+            return;
+        }
+        lastReactionTime = now;
+        SocketClient.emit('drawer:reaction', {
+            roomCode: LobbyModule.getRoomCode(),
+            type,
+        });
+    }
+
+    function _togglePingMode() {
+        if (!isDrawer) return;
+        isPingMode = !isPingMode;
+        const btn = document.getElementById('btn-react-ping');
+        const overlay = document.getElementById('reaction-overlay');
+        if (btn) btn.classList.toggle('active', isPingMode);
+        if (overlay) overlay.classList.toggle('ping-active', isPingMode);
+        if (isPingMode) {
+            App.toast('CLICK THE CANVAS TO PING A CLUE!', 'info');
+        }
+    }
+
+    function _onReactionOverlayClick(e) {
+        if (isPingMode && isDrawer) {
+            _handlePingAtEvent(e);
+        }
+    }
+
+    function _handlePingAtEvent(e) {
+        const rect = canvas.getBoundingClientRect();
+        const normX = (e.clientX - rect.left) / rect.width;
+        const normY = (e.clientY - rect.top) / rect.height;
+        isPingMode = false;
+        const btn = document.getElementById('btn-react-ping');
+        const overlay = document.getElementById('reaction-overlay');
+        if (btn) btn.classList.remove('active');
+        if (overlay) overlay.classList.remove('ping-active');
+
+        SocketClient.emit('drawer:reaction', {
+            roomCode: LobbyModule.getRoomCode(),
+            type: 'PING',
+            x: normX,
+            y: normY,
+        });
+    }
+
+    function _onRemoteReaction(data) {
+        const overlay = document.getElementById('reaction-overlay');
+        if (!overlay) return;
+
+        if (data.type === 'HOT') {
+            const banner = document.createElement('div');
+            banner.className = 'reaction-banner hot';
+            banner.innerHTML = '🔥 DRAWER SAYS: GETTING HOT!';
+            overlay.appendChild(banner);
+            setTimeout(() => banner.remove(), 2300);
+            ChatModule.addSystemMessage("🔥 [DRAWER]: Someone is getting hot/close!");
+        } else if (data.type === 'COLD') {
+            const banner = document.createElement('div');
+            banner.className = 'reaction-banner cold';
+            banner.innerHTML = '❄️ DRAWER SAYS: FREEZING COLD!';
+            overlay.appendChild(banner);
+            setTimeout(() => banner.remove(), 2300);
+            ChatModule.addSystemMessage("❄️ [DRAWER]: Freezing cold / way off!");
+        } else if (data.type === 'PING') {
+            const pingEl = document.createElement('div');
+            pingEl.className = 'radar-ping';
+            const pctX = (data.x != null ? data.x : 0.5) * 100;
+            const pctY = (data.y != null ? data.y : 0.5) * 100;
+            pingEl.style.left = pctX + '%';
+            pingEl.style.top = pctY + '%';
+            pingEl.innerHTML = `
+                <div class="radar-ring"></div>
+                <div class="radar-ring"></div>
+                <div class="radar-center"></div>
+                <div class="radar-text">LOOK HERE!</div>
+            `;
+            overlay.appendChild(pingEl);
+            setTimeout(() => pingEl.remove(), 2000);
+            ChatModule.addSystemMessage("🎯 [DRAWER]: Look here!");
+        }
+    }
+
+    function playTimelapse(canvasId, onComplete) {
+        stopTimelapse();
+        const targetCanvas = document.getElementById(canvasId);
+        if (!targetCanvas) return;
+        const tCtx = targetCanvas.getContext('2d');
+        if (!tCtx) return;
+
+        tCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        tCtx.fillStyle = '#FFFFFF';
+        tCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+
+        if (!strokeHistory || strokeHistory.length === 0) {
+            return;
+        }
+
+        const strokesToReplay = JSON.parse(JSON.stringify(strokeHistory));
+        let strokeIdx = 0;
+        let pointIdx = 1;
+
+        function drawNextFrame() {
+            const stepsPerFrame = Math.max(3, Math.ceil(strokesToReplay.length / 25));
+
+            for (let s = 0; s < stepsPerFrame; s++) {
+                if (strokeIdx >= strokesToReplay.length) {
+                    stopTimelapse();
+                    if (onComplete) onComplete();
+                    return;
+                }
+
+                const stroke = strokesToReplay[strokeIdx];
+                if (stroke.type === 'fill') {
+                    tCtx.fillStyle = stroke.color;
+                    tCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+                    strokeIdx++;
+                    pointIdx = 1;
+                    continue;
+                }
+
+                const points = stroke.points || [];
+                const width = (stroke.width || 0.01) * targetCanvas.width;
+                const color = stroke.isEraser ? '#FFFFFF' : stroke.color;
+
+                if (points.length <= 1) {
+                    if (points.length === 1) {
+                        const pt = { x: points[0].x * targetCanvas.width, y: points[0].y * targetCanvas.height };
+                        tCtx.beginPath();
+                        tCtx.arc(pt.x, pt.y, width / 2, 0, Math.PI * 2);
+                        tCtx.fillStyle = color;
+                        if (stroke.isEraser) {
+                            tCtx.globalCompositeOperation = 'destination-out';
+                        }
+                        tCtx.fill();
+                        tCtx.globalCompositeOperation = 'source-over';
+                    }
+                    strokeIdx++;
+                    pointIdx = 1;
+                    continue;
+                }
+
+                if (pointIdx < points.length) {
+                    const p1 = { x: points[pointIdx - 1].x * targetCanvas.width, y: points[pointIdx - 1].y * targetCanvas.height };
+                    const p2 = { x: points[pointIdx].x * targetCanvas.width, y: points[pointIdx].y * targetCanvas.height };
+
+                    tCtx.beginPath();
+                    tCtx.moveTo(p1.x, p1.y);
+                    tCtx.lineTo(p2.x, p2.y);
+                    tCtx.strokeStyle = color;
+                    tCtx.lineWidth = width;
+                    tCtx.lineCap = 'round';
+                    tCtx.lineJoin = 'round';
+                    if (stroke.isEraser || color === '#FFFFFF' || color === 'white') {
+                        tCtx.globalCompositeOperation = 'destination-out';
+                    } else {
+                        tCtx.globalCompositeOperation = 'source-over';
+                    }
+                    tCtx.stroke();
+                    tCtx.globalCompositeOperation = 'source-over';
+
+                    pointIdx++;
+                } else {
+                    strokeIdx++;
+                    pointIdx = 1;
+                }
+            }
+
+            timelapseAnimId = requestAnimationFrame(drawNextFrame);
+        }
+
+        timelapseAnimId = requestAnimationFrame(drawNextFrame);
+    }
+
+    function stopTimelapse() {
+        if (timelapseAnimId) {
+            cancelAnimationFrame(timelapseAnimId);
+            timelapseAnimId = null;
+        }
+    }
+
     function enableDrawing() {
         console.log('[Canvas] enableDrawing called');
         isDrawer = true;
@@ -297,6 +508,16 @@ const CanvasModule = (() => {
     }
 
     function reset() {
+        stopTimelapse();
+        isPingMode = false;
+        const pingBtn = document.getElementById('btn-react-ping');
+        const overlay = document.getElementById('reaction-overlay');
+        if (pingBtn) pingBtn.classList.remove('active');
+        if (overlay) {
+            overlay.classList.remove('ping-active');
+            overlay.innerHTML = '';
+        }
+
         strokeHistory = [];
         currentStroke = [];
         isDrawing = false;
@@ -312,5 +533,5 @@ const CanvasModule = (() => {
         _redrawAll();
     }
 
-    return { init, enableDrawing, disableDrawing, reset, loadStrokes };
+    return { init, enableDrawing, disableDrawing, reset, loadStrokes, playTimelapse, stopTimelapse };
 })();

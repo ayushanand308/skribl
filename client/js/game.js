@@ -13,6 +13,7 @@ var GameModule = (() => {
 
     function init() {
         SocketClient.on('choose-word', _onPickWord);
+        SocketClient.on('turn:picking-word', _onPickingWord);
         SocketClient.on('round-started', _onRoundStart);
         SocketClient.on('game:hint', _onHint);
         SocketClient.on('round-end', _onRoundEnd);
@@ -67,6 +68,53 @@ var GameModule = (() => {
         }
     }
 
+    let _waitingPickerTimerId = null;
+    function _clearWaitingPickerTimer() {
+        if (_waitingPickerTimerId) {
+            clearInterval(_waitingPickerTimerId);
+            _waitingPickerTimerId = null;
+        }
+    }
+
+    function _onPickingWord(data) {
+        myPlayerId = LobbyModule.getMyPlayerId();
+        currentRound = data.round || currentRound;
+        maxRounds = data.maxRounds || maxRounds;
+        const roundEl = document.getElementById('game-round');
+        if (roundEl) roundEl.textContent = `${currentRound} / ${maxRounds}`;
+
+        App.showScreen('game');
+
+        if (data.drawerId !== myPlayerId) {
+            const overlay = document.getElementById('overlay-waiting-picker');
+            if (overlay) {
+                const titleEl = document.getElementById('waiting-picker-title');
+                const subEl = document.getElementById('waiting-picker-subtitle');
+                if (titleEl) titleEl.textContent = `// ROUND ${currentRound} //`;
+                if (subEl) subEl.innerHTML = `<strong style="color: var(--color-primary);">${_escapeHtml(data.drawerName || 'Drawer')}</strong> is choosing a word...`;
+                overlay.style.display = '';
+
+                _clearWaitingPickerTimer();
+                let elapsed = 0;
+                const totalTime = 15;
+                const timerFill = document.getElementById('waiting-picker-timer-fill');
+                if (timerFill) timerFill.style.width = '100%';
+                _waitingPickerTimerId = setInterval(() => {
+                    elapsed += 0.1;
+                    const pct = Math.max(0, 100 - (elapsed / totalTime) * 100);
+                    if (timerFill) timerFill.style.width = pct + '%';
+                    if (elapsed >= totalTime) {
+                        _clearWaitingPickerTimer();
+                    }
+                }, 100);
+            }
+            App.toast(`>> ${data.drawerName || 'Drawer'} IS CHOOSING A WORD <<`, 'info');
+        } else {
+            const overlay = document.getElementById('overlay-waiting-picker');
+            if (overlay) overlay.style.display = 'none';
+        }
+    }
+
     function _onRoundStart(data) {
         myPlayerId = LobbyModule.getMyPlayerId();
         currentDrawerId = data.drawerId;
@@ -78,20 +126,30 @@ var GameModule = (() => {
         timeLeft = data.timeLeft !== undefined ? data.timeLeft : drawTime;
         players = data.players || players;
 
+        if (data.fullWord) {
+            chosenWord = data.fullWord;
+        }
+
         document.getElementById('game-round').textContent = `${currentRound} / ${maxRounds}`;
 
-        _renderWordHint(data.wordHint);
+        if (isDrawer && chosenWord) {
+            _renderWordHint(chosenWord.split('').map(ch => ch === ' ' ? ' ' : ch).join(''), true);
+        } else {
+            _renderWordHint(data.wordHint);
+        }
 
+        CanvasModule.stopTimelapse();
         CanvasModule.reset();
+        ChatModule.resetForNewTurn();
         
         _clearWordPickerTimer();
+        _clearWaitingPickerTimer();
 
         if (isDrawer) {
             CanvasModule.enableDrawing();
             ChatModule.disable("YOU'RE DRAWING! NO CHAT.");
             ChatModule.addSystemMessage(">> IT'S YOUR TURN TO DRAW! <<");
             if (chosenWord) {
-                _renderWordHint(chosenWord.split('').map(ch => ch === ' ' ? ' ' : ch).join(''), true);
                 ChatModule.addSystemMessage(`>> YOUR WORD: ${chosenWord.toUpperCase()} <<`);
             }
         } else {
@@ -107,6 +165,8 @@ var GameModule = (() => {
 
         if (roundEndTimeout) { clearTimeout(roundEndTimeout); roundEndTimeout = null; }
         document.getElementById('overlay-word-picker').style.display = 'none';
+        const waitingOverlay = document.getElementById('overlay-waiting-picker');
+        if (waitingOverlay) waitingOverlay.style.display = 'none';
         document.getElementById('overlay-round-end').style.display = 'none';
         document.getElementById('overlay-game-over').style.display = 'none';
 
@@ -126,15 +186,20 @@ var GameModule = (() => {
             player.guessed = true;
             player.score = (player.score || 0) + (data.score || 0);
         }
+        if (data.playerId === myPlayerId) {
+            ChatModule.disable("YOU GUESSED THE WORD!");
+        }
         _renderSidebar();
     }
 
     function _onPlayerLeft(data) {
         const p = players.find((pl) => pl.id === data.playerId);
         const wasDrawer = data.playerId === currentDrawerId;
-        players = players.filter((pl) => pl.id !== data.playerId);
+        if (p) {
+            p.socketId = "";
+            ChatModule.addSystemMessage(`>> ${p.name} LEFT THE GAME <<`);
+        }
         _renderSidebar();
-        if (p) ChatModule.addSystemMessage(`>> ${p.name} LEFT THE GAME <<`);
         if (wasDrawer) {
             _stopTimer();
             CanvasModule.disableDrawing();
@@ -146,6 +211,7 @@ var GameModule = (() => {
     function _onRoundEnd(data) {
         _stopTimer();
         _clearWordPickerTimer();
+        ChatModule.resetForNewTurn();
         isDrawer = false;
         chosenWord = null;
         timeLeft = 0;
@@ -185,9 +251,11 @@ var GameModule = (() => {
         });
 
         document.getElementById('overlay-round-end').style.display = '';
+        CanvasModule.playTimelapse('timelapse-canvas');
 
         if (roundEndTimeout) clearTimeout(roundEndTimeout);
         roundEndTimeout = setTimeout(() => {
+            CanvasModule.stopTimelapse();
             document.getElementById('overlay-round-end').style.display = 'none';
             roundEndTimeout = null;
         }, 5000);
@@ -197,9 +265,16 @@ var GameModule = (() => {
     function _onGameOver(data) {
         _stopTimer();
         _clearWordPickerTimer();
+        _clearWaitingPickerTimer();
+        CanvasModule.stopTimelapse();
+        ChatModule.resetForNewTurn();
         isDrawer = false;
         chosenWord = null;
         currentDrawerId = null;
+
+        if (data && data.reason === 'not_enough_players') {
+            App.toast('>> GAME OVER: LESS THAN 2 PLAYERS REMAINING <<', 'warning');
+        }
 
         console.log('[Game] _onGameOver — data:', data);
 
@@ -247,6 +322,9 @@ var GameModule = (() => {
       `)
             .join('');
 
+        _clearWaitingPickerTimer();
+        const waitingOverlay = document.getElementById('overlay-waiting-picker');
+        if (waitingOverlay) waitingOverlay.style.display = 'none';
         document.getElementById('overlay-round-end').style.display = 'none';
         document.getElementById('overlay-word-picker').style.display = 'none';
         document.getElementById('overlay-game-over').style.display = '';
@@ -280,16 +358,21 @@ var GameModule = (() => {
                 const isCurrentDrawer = p.id === currentDrawerId;
                 const hasGuessed = p.guessed;
                 const isMe = p.id === myPlayerId;
+                const isDisconnected = !p.socketId || p.socketId === "";
                 let classes = 'sidebar-player';
                 if (isCurrentDrawer) classes += ' drawing';
                 if (hasGuessed) classes += ' guessed';
+                if (isDisconnected) classes += ' disconnected';
 
                 return `
           <div class="${classes}">
             ${isCurrentDrawer ? '<div class="drawing-indicator"></div>' : ''}
             <span class="rank">#${i + 1}</span>
             <span class="sp-avatar">${p.avatar || '😀'}</span>
-            <span class="sp-name">${_escapeHtml(p.name)}${isMe ? ' (You)' : ''}</span>
+            <span class="sp-name">
+              ${_escapeHtml(p.name)}${isMe ? ' (You)' : ''}
+              ${isDisconnected ? '<span class="disconnected-badge">LEFT</span>' : ''}
+            </span>
             ${hasGuessed ? '<span class="guessed-check">✓</span>' : ''}
             <span class="sp-score">${p.score || 0}</span>
           </div>
@@ -388,6 +471,9 @@ var GameModule = (() => {
             }
         }
         
+        _clearWaitingPickerTimer();
+        const waitingOverlay = document.getElementById('overlay-waiting-picker');
+        if (waitingOverlay) waitingOverlay.style.display = 'none';
         document.getElementById('overlay-word-picker').style.display = 'none';
         document.getElementById('overlay-round-end').style.display = 'none';
         document.getElementById('overlay-game-over').style.display = 'none';

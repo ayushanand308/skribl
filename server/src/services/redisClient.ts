@@ -374,31 +374,70 @@ export class RedisClient extends EventEmitter {
     }
 
 
-    async registerRoom(roomCode: string, config: { hostId: string; maxRounds: number; drawTime: number; maxPlayers: number }): Promise<void> {
+    async registerRoom(roomCode: string, config: {
+        hostId: string;
+        maxRounds: number;
+        drawTime: number;
+        maxPlayers: number;
+        customWords?: string[];
+        customWordsOnly?: boolean;
+        customTheme?: string;
+    }): Promise<void> {
         return this.safeRedisCall(
             async () => {
-                await this.client.hset(`room:${roomCode}:config`, {
+                const data: Record<string, string> = {
                     hostId: config.hostId,
                     maxRounds: String(config.maxRounds),
                     drawTime: String(config.drawTime),
                     maxPlayers: String(config.maxPlayers),
-                });
+                    customWords: JSON.stringify(config.customWords || []),
+                    customWordsOnly: String(!!config.customWordsOnly),
+                    customTheme: config.customTheme || 'Default',
+                };
+                await this.client.hset(`room:${roomCode}:config`, data);
             },
             undefined,
             'registerRoom'
         );
     }
 
-    async getRoomConfig(roomCode: string): Promise<{ hostId: string; maxRounds: number; drawTime: number; maxPlayers: number } | null> {
+    async updateRoomHost(roomCode: string, newHostId: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.hset(`room:${roomCode}:config`, 'hostId', newHostId);
+            },
+            undefined,
+            'updateRoomHost'
+        );
+    }
+
+    async getRoomConfig(roomCode: string): Promise<{
+        hostId: string;
+        maxRounds: number;
+        drawTime: number;
+        maxPlayers: number;
+        customWords: string[];
+        customWordsOnly: boolean;
+        customTheme: string;
+    } | null> {
         return this.safeRedisCall(
             async () => {
                 const raw = await this.client.hgetall(`room:${roomCode}:config`);
                 if (!raw || !raw.hostId) return null;
+                let parsedCustomWords: string[] = [];
+                try {
+                    if (raw.customWords) parsedCustomWords = JSON.parse(raw.customWords);
+                } catch {
+                    parsedCustomWords = [];
+                }
                 return {
                     hostId: raw.hostId,
                     maxRounds: Number(raw.maxRounds),
                     drawTime: Number(raw.drawTime),
                     maxPlayers: Number(raw.maxPlayers),
+                    customWords: parsedCustomWords,
+                    customWordsOnly: raw.customWordsOnly === 'true',
+                    customTheme: raw.customTheme || 'Default',
                 };
             },
             null,
@@ -413,6 +452,58 @@ export class RedisClient extends EventEmitter {
             },
             undefined,
             'unregisterRoom'
+        );
+    }
+
+    async hasUsedDoubleDown(roomCode: string, playerId: string): Promise<boolean> {
+        return this.safeRedisCall(
+            async () => {
+                const res = await this.client.sismember(`room:${roomCode}:used_dd`, playerId);
+                return res === 1;
+            },
+            false,
+            'hasUsedDoubleDown'
+        );
+    }
+
+    async markUsedDoubleDown(roomCode: string, playerId: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.sadd(`room:${roomCode}:used_dd`, playerId);
+            },
+            undefined,
+            'markUsedDoubleDown'
+        );
+    }
+
+    async clearDoubleDown(roomCode: string): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.del(`room:${roomCode}:used_dd`);
+            },
+            undefined,
+            'clearDoubleDown'
+        );
+    }
+
+    async setUserLockout(roomCode: string, playerId: string, seconds: number): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                await this.client.set(`room:${roomCode}:lockout:${playerId}`, '1', 'EX', seconds);
+            },
+            undefined,
+            'setUserLockout'
+        );
+    }
+
+    async isUserLockedOut(roomCode: string, playerId: string): Promise<number> {
+        return this.safeRedisCall(
+            async () => {
+                const ttl = await this.client.ttl(`room:${roomCode}:lockout:${playerId}`);
+                return ttl > 0 ? ttl : 0;
+            },
+            0,
+            'isUserLockedOut'
         );
     }
 }

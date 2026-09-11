@@ -5,12 +5,34 @@ import { WordBank } from "../../game/wordBank";
 import { redisClient } from "../../services/redisClient";
 
 
+function getHostSettings(room: any) {
+    return {
+        rounds: room.maxRounds,
+        drawTime: room.drawTime,
+        maxPlayers: room.maxPlayers,
+        customWords: room.customWords || [],
+        customWordsOnly: !!room.customWordsOnly,
+        customTheme: room.customTheme || 'Default'
+    };
+}
+
+function getGuestSettings(room: any) {
+    return {
+        rounds: room.maxRounds,
+        drawTime: room.drawTime,
+        maxPlayers: room.maxPlayers,
+        customWordsCount: room.customWords ? room.customWords.length : 0,
+        customWordsOnly: !!room.customWordsOnly,
+        customTheme: room.customTheme || 'Default'
+    };
+}
+
 export function handleRoom(socket: Socket , io : Server ) {
     socket.on("room-create", async (payload) => {
         const { username, id, avatar } = payload;
-        const roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const roomCode = Math.random().toString(36).substring(2, 8).padEnd(6, '0').toUpperCase();
 
-        const room = await RoomManager.createRoom(roomCode, socket.id);
+        const room = await RoomManager.createRoom(roomCode, id);
 
         await room.addPlayer({
             id,
@@ -26,8 +48,9 @@ export function handleRoom(socket: Socket , io : Server ) {
             roomCode, 
             players: room.players, 
             hostId: room.hostId, 
+            hostSocketId: socket.id,
             gameState: 'LOBBY', 
-            settings: { rounds: room.maxRounds, drawTime: room.drawTime, maxPlayers: room.maxPlayers } 
+            settings: getHostSettings(room)
         });
 
     });
@@ -61,12 +84,14 @@ export function handleRoom(socket: Socket , io : Server ) {
         socket.join(roomCode);
         socket.to(roomCode).emit("player-joined", { player: { id, socketId: socket.id, name: username, score: 0, avatar } });
         RoomManager.addSocketToMap(socket.id , roomCode);
+        const hostPlayer = room?.players.find(p => p.id === room?.hostId);
         socket.emit("room-joined", { 
             roomCode, 
             players: room?.players, 
             hostId: room?.hostId, 
+            hostSocketId: hostPlayer?.socketId,
             gameState: 'LOBBY', 
-            settings: { rounds: room?.maxRounds, drawTime: room?.drawTime, maxPlayers: room?.maxPlayers } 
+            settings: getGuestSettings(room)
         });
     });
 
@@ -78,6 +103,8 @@ export function handleRoom(socket: Socket , io : Server ) {
             await room.machine.syncFromRedis();
             await room.syncPlayersFromRedis();
             await room.syncTurnStateFromRedis();
+            await room.syncConfigFromRedis(); // ← required: loads customWords/theme/customWordsOnly
+            const state = room.machine.getState();
             
             const player = room.players.find(p => p.id === id);
             if (player) {
@@ -89,13 +116,14 @@ export function handleRoom(socket: Socket , io : Server ) {
                 socket.join(roomCode);
                 RoomManager.addSocketToMap(socket.id, roomCode);
                 
-                const state = room.machine.getState();
+                const hostPlayer = room.players.find(p => p.id === room.hostId);
                 const reconnectData: any = {
                     roomCode, 
                     players: room.players, 
                     hostId: room.hostId, 
+                    hostSocketId: hostPlayer?.socketId,
                     gameState: state, 
-                    settings: { rounds: room.maxRounds, drawTime: room.drawTime, maxPlayers: room.maxPlayers },
+                    settings: (player.id === room.hostId) ? getHostSettings(room) : getGuestSettings(room),
                     round: room.currentRound,
                     maxRounds: room.maxRounds,
                     drawerId: room.drawer?.id
@@ -143,20 +171,35 @@ export function handleRoom(socket: Socket , io : Server ) {
             await room.machine.syncFromRedis();
             await room.syncPlayersFromRedis();
             const playerId = room.getPlayerId(socket.id); // frontend id 
-            const isHost = playerId === room.getPlayerId(room.hostId); //backend socket id
+            const isHost = playerId ? room.isHost(playerId) : false;
             await room.removePlayer(socket.id);
             const state = room.machine.getState();
-            if(state !== 'LOBBY' && state !== 'GAME_END' && (room.players.length < 2 || playerId === room.drawer?.socketId)){
-                room.endTurn(true);
-            }
             socket.leave(roomCode);
             socket.to(roomCode).emit("player-left", { playerId: playerId, isHost });
-            if(isHost){            
-                io.to(roomCode).emit("game-over", { reason: "host_left" });
-                await RoomManager.destroyRoom(roomCode);
-            }
-            if(room.isEmpty()){
-                await RoomManager.destroyRoom(roomCode);
+
+            const activePlayers = room.players.filter(p => p.socketId && p.socketId !== "");
+            if (state !== 'LOBBY' && state !== 'GAME_END') {
+                if (activePlayers.length < 2) {
+                    await room.endGameDueToLackOfPlayers();
+                    if (activePlayers.length === 0) {
+                        await RoomManager.destroyRoom(roomCode);
+                    } else if (isHost) {
+                        await room.electNewHost(playerId);
+                    }
+                } else {
+                    if (playerId === room.drawer?.id || socket.id === room.drawer?.socketId) {
+                        room.endTurn(true);
+                    }
+                    if (isHost) {
+                        await room.electNewHost(playerId);
+                    }
+                }
+            } else {
+                if (room.isEmpty()) {
+                    await RoomManager.destroyRoom(roomCode);
+                } else if (isHost) {
+                    await room.electNewHost(playerId);
+                }
             }
             RoomManager.removeSocketFromMap(socket.id);
         }
@@ -166,21 +209,38 @@ export function handleRoom(socket: Socket , io : Server ) {
         const roomCode = [...socket.rooms].find((r) => r != socket.id)
         if (!roomCode) return;
         const room = await RoomManager.getRoom(roomCode);
-        if (!room || room.hostId !== socket.id) return;
+        if (!room) return;
+        await room.syncConfigFromRedis();
+        if (!room.isHost(socket.id)) return;
 
         if (payload.rounds != null) room.maxRounds = payload.rounds;
         if (payload.drawTime != null) room.drawTime = payload.drawTime;
         if (payload.maxPlayers != null) room.maxPlayers = payload.maxPlayers;
+        if (payload.customWords !== undefined) {
+            room.customWords = WordBank.sanitizeWords(payload.customWords);
+        }
+        if (payload.customWordsOnly !== undefined) {
+            room.customWordsOnly = !!payload.customWordsOnly;
+        }
+        if (payload.customTheme !== undefined) {
+            room.customTheme = String(payload.customTheme || 'Default');
+        }
 
         await redisClient.registerRoom(roomCode, {
             hostId: room.hostId,
             maxRounds: room.maxRounds,
             drawTime: room.drawTime,
-            maxPlayers: room.maxPlayers
+            maxPlayers: room.maxPlayers,
+            customWords: room.customWords,
+            customWordsOnly: room.customWordsOnly,
+            customTheme: room.customTheme,
         }).catch((err: any) => console.error(`[RoomHandler] Failed to update Redis config:`, err));
 
-        io.to(roomCode).emit("room:settings-updated", {
-            settings: { rounds: room.maxRounds, drawTime: room.drawTime, maxPlayers: room.maxPlayers }
+        socket.emit("room:settings-updated", {
+            settings: getHostSettings(room)
+        });
+        socket.to(roomCode).emit("room:settings-updated", {
+            settings: getGuestSettings(room)
         });
     });
 }

@@ -2,7 +2,13 @@ var SocketClient = (() => {
     let socket = null;
     const listeners = new Map();
 
-    function connect(serverUrl = 'https://skriblbe.asyncayush.dev') {
+    function connect(serverUrl) {
+        if (!serverUrl) {
+            const isProd = window.location.hostname.endsWith('asyncayush.dev');
+            serverUrl = isProd
+                ? 'https://skriblbe.asyncayush.dev'
+                : `${window.location.protocol}//${window.location.hostname}:3000`;
+        }
         if (socket && socket.connected) return;
 
         socket = io(serverUrl, {
@@ -47,6 +53,7 @@ var SocketClient = (() => {
             'room:host-changed',
             'room:error',
             'choose-word',
+            'turn:picking-word',
             'round-started',
             'game-started',
             'game:hint',
@@ -60,6 +67,9 @@ var SocketClient = (() => {
             'stroke-fill',
             'stroke-undo',
             'chat-message',
+            'drawer:reaction',
+            'game:lockout',
+            'chat:locked',
             'system:degraded',
             'system:recovered',
         ];

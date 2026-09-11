@@ -2,8 +2,72 @@ import words from "../../words.json";
 
 export class WordBank {
     
-    static getRandomWords(count: number): string[] {
-        const shuffled = [...words].sort(() => Math.random() - 0.5);
+    static sanitizeWords(rawWords: string[] | string | undefined | null): string[] {
+        if (!rawWords) return [];
+        let list: string[] = [];
+        if (typeof rawWords === "string") {
+            list = rawWords.split(/[,;\n\r]+/);
+        } else if (Array.isArray(rawWords)) {
+            list = rawWords.flatMap(item => typeof item === "string" ? item.split(/[,;\n\r]+/) : []);
+        }
+        const cleaned = list
+            .map(w => w.trim().toLowerCase().replace(/\s+/g, ' '))
+            .filter(w => w.length >= 2 && w.length <= 32 && /^[a-z0-9 -]+$/.test(w));
+        return Array.from(new Set(cleaned));
+    }
+
+    static getRandomWords(
+        count: number,
+        customWords?: string[],
+        customWordsOnly: boolean = false,
+        usedWords?: Set<string>
+    ): string[] {
+        const sanitizedCustom = this.sanitizeWords(customWords);
+        const used = usedWords || new Set<string>();
+
+        if (customWordsOnly && sanitizedCustom.length >= count) {
+            let available = sanitizedCustom.filter(w => !used.has(w));
+            if (available.length < count) {
+                available = [...sanitizedCustom];
+            }
+            const shuffled = [...available].sort(() => Math.random() - 0.5);
+            return shuffled.slice(0, count);
+        }
+
+        if (customWordsOnly && sanitizedCustom.length > 0) {
+            let available = sanitizedCustom.filter(w => !used.has(w));
+            if (available.length === 0) available = [...sanitizedCustom];
+            const shuffledCustom = [...available].sort(() => Math.random() - 0.5);
+            const chosen = shuffledCustom.slice(0, Math.min(count, shuffledCustom.length));
+            if (chosen.length < count) {
+                const defaultPool = words.filter(w => !used.has(w) && !chosen.includes(w));
+                const pool = defaultPool.length >= (count - chosen.length) ? defaultPool : words;
+                const shuffledDefaults = [...pool].filter(w => !chosen.includes(w)).sort(() => Math.random() - 0.5);
+                chosen.push(...shuffledDefaults.slice(0, count - chosen.length));
+            }
+            return chosen;
+        }
+
+        if (sanitizedCustom.length > 0) {
+            let availableCustom = sanitizedCustom.filter(w => !used.has(w));
+            if (availableCustom.length === 0) availableCustom = [...sanitizedCustom];
+            const customCount = Math.min(Math.ceil(count / 2), availableCustom.length);
+            const chosenCustom = [...availableCustom].sort(() => Math.random() - 0.5).slice(0, customCount);
+
+            const defaultPool = words.filter(w => !used.has(w) && !chosenCustom.includes(w));
+            const availableDefaults = defaultPool.length >= (count - chosenCustom.length) ? defaultPool : words;
+            const chosenDefaults = [...availableDefaults]
+                .filter(w => !chosenCustom.includes(w))
+                .sort(() => Math.random() - 0.5)
+                .slice(0, count - chosenCustom.length);
+
+            const combined = [...chosenCustom, ...chosenDefaults].sort(() => Math.random() - 0.5);
+            return combined.slice(0, count);
+        }
+
+        const availableDefaults = words.filter(w => !used.has(w));
+        const pool = availableDefaults.length >= count ? availableDefaults : words;
+        const shuffled = [...pool].sort(() => Math.random() - 0.5);
         return shuffled.slice(0, count);
     }
 

@@ -95,52 +95,71 @@ redisClient.on('status_changed', (healthy: boolean) => {
 
 io.on("connection", (socket) => {
   console.log(`[Socket] Client connected: ${socket.id}`);
-  
+
   socket.on("disconnect", async () => {
-    const roomCode : string | undefined = RoomManager.getRoomCodeFromSocket(socket.id)
-    let room ; 
-    if(roomCode){
+    const roomCode: string | undefined = RoomManager.getRoomCodeFromSocket(socket.id)
+    let room;
+
+    if (roomCode) {
+
       room = await RoomManager.getRoom(roomCode);
     }
-    
+
     if (room && roomCode) {
-        await room.machine.syncFromRedis();
-        await room.syncPlayersFromRedis();
-        await room.syncTurnStateFromRedis();
-        RoomManager.removeSocketFromMap(socket.id);
-        const playerId = room.getPlayerId(socket.id);
-        const isHost = playerId === room.hostId;
+      await room.machine.syncFromRedis();
+      await room.syncPlayersFromRedis();
+      await room.syncTurnStateFromRedis();
+      RoomManager.removeSocketFromMap(socket.id);
+      const playerId = room.getPlayerId(socket.id);
+      const isHost = playerId ? room.isHost(playerId) : false;
 
-        const state = room.machine.getState();
+      const state = room.machine.getState();
 
-        if (state === 'LOBBY' || state === 'GAME_END') {
-            await room.removePlayer(socket.id);
-            socket.to(roomCode).emit("player-left", { playerId, isHost });
-            
-            if (isHost || room.isEmpty()) {
-                io.to(roomCode).emit("game-over", { reason: "host_left" });
-                await RoomManager.destroyRoom(roomCode);
-            }
-        } else {
-            if (playerId) {
-                await room.updatePlayerSocketId(playerId, "");
-            }
-            socket.to(roomCode).emit("player-left", { playerId, isHost });
-            if (playerId === room.drawer?.id || room.players.length < 2) {
-                room.endTurn(true);
-            }
-            
-            if (room.isEmpty()) {
-                await RoomManager.destroyRoom(roomCode);
-            }
+      if (state === 'LOBBY' || state === 'GAME_END') {
+        await room.removePlayer(socket.id);
+        socket.to(roomCode).emit("player-left", { playerId, isHost });
+
+        if (room.isEmpty()) {
+          await RoomManager.destroyRoom(roomCode);
+        } else if (isHost) {
+          await room.electNewHost(playerId);
         }
-        
-        socket.leave(roomCode);
+      } else {
+        if (playerId) {
+          await room.updatePlayerSocketId(playerId, "");
+        }
+        socket.to(roomCode).emit("player-left", { playerId, isHost });
+
+        const activePlayers = room.players.filter(p => p.socketId && p.socketId !== "");
+        if (activePlayers.length === 0) {
+          await room.endGameDueToLackOfPlayers();
+          await RoomManager.destroyRoom(roomCode);
+        } else if (activePlayers.length < 2) {
+          setTimeout(async () => {
+            const currentActive = room.players.filter((p: any) => p.socketId && p.socketId !== "");
+            if (currentActive.length < 2 && room.machine.getState() !== 'GAME_END') {
+              await room.endGameDueToLackOfPlayers();
+            }
+          }, 5000);
+          if (isHost) {
+            await room.electNewHost(playerId);
+          }
+        } else {
+          if (playerId === room.drawer?.id) {
+            room.endTurn(true);
+          }
+          if (isHost) {
+            await room.electNewHost(playerId);
+          }
+        }
+      }
+
+      socket.leave(roomCode);
     }
     console.log(`[Socket] Client disconnected: ${socket.id}`);
   });
 
-  handleRoom(socket ,io)
+  handleRoom(socket, io)
   handleChat(socket, io)
   handleGame(socket, io)
 });

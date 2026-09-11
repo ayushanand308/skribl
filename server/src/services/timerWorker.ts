@@ -18,9 +18,11 @@ export function startTimerWorker() {
             const { roomCode, round } = job.data;
             console.log(`[TimerWorker] Turn timer fired for room ${roomCode}, round ${round}`);
 
+            const isPickTimer = job.data.type === 'pick';
+            const expectedState = isPickTimer ? 'PICK_WORD' : 'DRAW';
             const currentState = await redisClient.getRoomState(roomCode);
-            if (currentState !== 'DRAW') {
-                console.log(`[TimerWorker] Room ${roomCode} is in state '${currentState}', not DRAW — skipping.`);
+            if (currentState !== expectedState) {
+                console.log(`[TimerWorker] Room ${roomCode} is in state '${currentState}', not ${expectedState} — skipping.`);
                 return;
             }
 
@@ -41,8 +43,6 @@ export function startTimerWorker() {
             await room.syncTurnStateFromRedis();
             const localState = room.machine.getState();
             
-            const isPickTimer = job.data.type === 'pick';
-            
             if (isPickTimer) {
                 if (localState !== 'PICK_WORD') {
                     console.log(`[TimerWorker] Local state mismatch after Redis sync (expected PICK_WORD): ${localState} — skipping.`);
@@ -50,13 +50,14 @@ export function startTimerWorker() {
                 }
                 console.log(`[TimerWorker] Pick timer expired for room ${roomCode}. Auto-picking word.`);
                 const words = await redisClient.getPickWords(roomCode);
-                const choosenWord = words ? words[0] : WordBank.getRandomWords(1)[0];
+                const choosenWord = words ? words[0] : WordBank.getRandomWords(1, room.customWords, room.customWordsOnly, room.usedWords)[0];
                 
                 await room.startRoundTimer(choosenWord);
                 await room.machine.dispatch('WORD_PICKED');
                 
                 const wordHint = String(choosenWord).split('').map((char: string) => char === ' ' ? ' ' : '_').join(' ');
-                getIO().to(roomCode).emit("round-started", { 
+                const drawerSocketId = room?.drawer?.socketId;
+                const basePayload = { 
                     roomCode, 
                     wordHint,
                     drawerId: room?.drawer?.id,
@@ -64,7 +65,19 @@ export function startTimerWorker() {
                     round: room?.currentRound,
                     maxRounds: room?.maxRounds,
                     players: room?.players,
-                });
+                    settings: { drawTime: room?.drawTime, rounds: room?.maxRounds, maxPlayers: room?.maxPlayers },
+                };
+
+                const io = getIO();
+                if (drawerSocketId) {
+                    io.to(roomCode).except(drawerSocketId).emit("round-started", basePayload);
+                    io.to(drawerSocketId).emit("round-started", {
+                        ...basePayload,
+                        fullWord: choosenWord,
+                    });
+                } else {
+                    io.to(roomCode).emit("round-started", basePayload);
+                }
                 return;
             }
 
