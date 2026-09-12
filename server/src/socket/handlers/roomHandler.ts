@@ -113,8 +113,14 @@ export function handleRoom(socket: Socket , io : Server ) {
                 }
                 
                 await room.updatePlayerSocketId(id, socket.id);
+                if (player.afk) {
+                    player.afk = false;
+                    await redisClient.updatePlayerAFKInRedis(roomCode, id, false);
+                }
+
                 socket.join(roomCode);
                 RoomManager.addSocketToMap(socket.id, roomCode);
+                socket.to(roomCode).emit("player-reconnected", { playerId: id });
                 
                 const hostPlayer = room.players.find(p => p.id === room.hostId);
                 const reconnectData: any = {
@@ -243,4 +249,30 @@ export function handleRoom(socket: Socket , io : Server ) {
             settings: getGuestSettings(room)
         });
     });
+    socket.on("kick-player", async (payload) => {
+        const { roomCode, playerId } = payload;
+        const room = await RoomManager.getRoom(roomCode);
+        if (room) {
+            await room.machine.syncFromRedis();
+            await room.syncPlayersFromRedis();
+            const senderId = room.getPlayerId(socket.id);
+            if (senderId === room.hostId && senderId !== playerId) {
+                const targetPlayer = room.players.find(p => p.id === playerId);
+                if (targetPlayer) {
+                    const targetSocketId = targetPlayer.socketId;
+                    await room.removePlayer(targetSocketId);
+                    
+                    if (targetSocketId) {
+                        io.to(targetSocketId).emit("room:error", { message: "YOU HAVE BEEN KICKED FROM THE ROOM" });
+                        const targetSocket = io.sockets.sockets.get(targetSocketId);
+                        if (targetSocket) {
+                            targetSocket.leave(roomCode);
+                        }
+                    }
+                    io.to(roomCode).emit("player-left", { playerId: playerId, isHost: false });
+                }
+            }
+        }
+    });
+
 }

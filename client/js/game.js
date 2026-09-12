@@ -18,15 +18,20 @@ var GameModule = (() => {
         SocketClient.on('game:hint', _onHint);
         SocketClient.on('round-end', _onRoundEnd);
         SocketClient.on('game:over', _onGameOver);
-        SocketClient.on('game:player-guessed', _onPlayerGuessed);
         SocketClient.on('player-left', _onPlayerLeft);
+        SocketClient.on('player-reconnected', _onPlayerReconnected);
+        SocketClient.on('afk-status', _onAfkStatus);
 
         document.getElementById('btn-play-again').addEventListener('click', _playAgain);
+        document.getElementById('btn-im-back').addEventListener('click', _imBack);
     }
 
     function _onPickWord(data) {
         myPlayerId = LobbyModule.getMyPlayerId();
         isDrawer = true;
+
+        document.getElementById('overlay-round-end').style.display = 'none';
+        document.getElementById('overlay-game-over').style.display = 'none';
 
         const overlay = document.getElementById('overlay-word-picker');
         const buttons = overlay.querySelectorAll('.word-btn');
@@ -82,6 +87,9 @@ var GameModule = (() => {
         maxRounds = data.maxRounds || maxRounds;
         const roundEl = document.getElementById('game-round');
         if (roundEl) roundEl.textContent = `${currentRound} / ${maxRounds}`;
+
+        document.getElementById('overlay-round-end').style.display = 'none';
+        document.getElementById('overlay-game-over').style.display = 'none';
 
         App.showScreen('game');
 
@@ -261,7 +269,6 @@ var GameModule = (() => {
         }, 5000);
     }
 
-
     function _onGameOver(data) {
         _stopTimer();
         _clearWordPickerTimer();
@@ -292,14 +299,24 @@ var GameModule = (() => {
 
         const sorted = enriched.sort((a, b) => b.totalScore - a.totalScore);
 
+        // Calculate ranks with ties
+        const ranks = [];
+        let currentRank = 1;
+        for (let i = 0; i < sorted.length; i++) {
+            if (i > 0 && sorted[i].totalScore < sorted[i - 1].totalScore) {
+                currentRank = i + 1;
+            }
+            ranks.push(currentRank);
+        }
+
         const podiumContainer = document.getElementById('final-podium');
         const podiumOrder = [1, 0, 2];
         podiumContainer.innerHTML = podiumOrder
             .map((idx) => {
                 const p = sorted[idx];
                 if (!p) return '';
-                const place = idx + 1;
-                const placeLabel = ['1st', '2nd', '3rd'][idx];
+                const place = ranks[idx];
+                const placeLabel = place === 1 ? '1st' : place === 2 ? '2nd' : '3rd';
                 return `
           <div class="podium-item podium-${placeLabel}">
             <span class="podium-avatar">${p.avatar}</span>
@@ -316,7 +333,7 @@ var GameModule = (() => {
             .map((s, i) => `
         <div class="round-score-row">
           <span class="rs-avatar">${s.avatar}</span>
-          <span class="rs-name">#${i + 1} ${_escapeHtml(s.playerName)}</span>
+          <span class="rs-name">#${ranks[i]} ${_escapeHtml(s.playerName)}</span>
           <span class="rs-delta positive">${s.totalScore}</span>
         </div>
       `)
@@ -329,7 +346,6 @@ var GameModule = (() => {
         document.getElementById('overlay-word-picker').style.display = 'none';
         document.getElementById('overlay-game-over').style.display = '';
     }
-
 
     function _renderWordHint(hint, isDrawerWord = false) {
         const container = document.getElementById('game-word-hint');
@@ -351,27 +367,37 @@ var GameModule = (() => {
 
     function _renderSidebar() {
         const container = document.getElementById('game-player-list');
-        const sorted = [...players].sort((a, b) => (b.score || 0) - (a.score || 0));
+        const hostId = LobbyModule.getHostId();
+        const sorted = [...players].sort((a, b) => {
+            if (a.id === myPlayerId) return -1;
+            if (b.id === myPlayerId) return 1;
+            return (b.score || 0) - (a.score || 0);
+        });
 
         container.innerHTML = sorted
             .map((p, i) => {
                 const isCurrentDrawer = p.id === currentDrawerId;
                 const hasGuessed = p.guessed;
                 const isMe = p.id === myPlayerId;
-                const isDisconnected = !p.socketId || p.socketId === "";
+                const isHost = p.id === hostId;
+                const isDisconnected = !p.socketId || p.socketId === "" || p.disconnected;
+                const isAfk = p.afk;
                 let classes = 'sidebar-player';
-                if (isCurrentDrawer) classes += ' drawing';
                 if (hasGuessed) classes += ' guessed';
                 if (isDisconnected) classes += ' disconnected';
+                if (isAfk) classes += ' afk';
+                if (isMe) classes += ' is-me';
 
                 return `
           <div class="${classes}">
-            ${isCurrentDrawer ? '<div class="drawing-indicator"></div>' : ''}
             <span class="rank">#${i + 1}</span>
             <span class="sp-avatar">${p.avatar || '😀'}</span>
             <span class="sp-name">
-              ${_escapeHtml(p.name)}${isMe ? ' (You)' : ''}
+              ${_escapeHtml(p.name)}
+              ${isHost ? '👑' : ''}
+              ${isCurrentDrawer ? '✏️' : ''}
               ${isDisconnected ? '<span class="disconnected-badge">LEFT</span>' : ''}
+              ${isAfk ? '<span class="disconnected-badge" style="background: var(--warning); color: #000;">AFK</span>' : ''}
             </span>
             ${hasGuessed ? '<span class="guessed-check">✓</span>' : ''}
             <span class="sp-score">${p.score || 0}</span>
@@ -391,6 +417,14 @@ var GameModule = (() => {
             _updateTimerDisplay();
             if (timeLeft <= 0) {
                 _stopTimer();
+                // Show waiting indicator — server is processing turn transition
+                var el = document.getElementById('game-timer-value');
+                var wrapper = document.getElementById('game-timer');
+                if (el) el.textContent = '⏳';
+                if (wrapper) {
+                    wrapper.classList.remove('warning', 'danger');
+                    wrapper.classList.add('danger');
+                }
             }
         }, 1000);
     }
@@ -431,6 +465,36 @@ var GameModule = (() => {
         return div.innerHTML;
     }
 
+    function _onPlayerLeft(data) {
+        const p = players.find(pl => pl.id === data.playerId);
+        if (p) {
+            p.disconnected = true;
+            _renderSidebar();
+            ChatModule.addSystemMessage(`>> ${p.name} disconnected <<`);
+        }
+    }
+
+    function _onPlayerReconnected(data) {
+        const p = players.find(pl => pl.id === data.playerId);
+        if (p) {
+            p.disconnected = false;
+            p.afk = false;
+            p.socketId = "reconnected"; // Dummy string so `!p.socketId` check passes
+            _renderSidebar();
+            ChatModule.addSystemMessage(`>> ${p.name} reconnected <<`);
+        }
+    }
+
+    function _onAfkStatus(data) {
+        if (data.isAfk) {
+            document.getElementById('overlay-afk').style.display = 'flex';
+        }
+    }
+
+    function _imBack() {
+        SocketClient.emit('player:im-back', { roomCode: LobbyModule.getRoomCode(), playerId: myPlayerId });
+        document.getElementById('overlay-afk').style.display = 'none';
+    }
 
     function handleReconnect(data) {
         players = data.players || [];

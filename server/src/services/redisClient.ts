@@ -143,6 +143,21 @@ export class RedisClient extends EventEmitter {
             'updatePlayerScoreInRedis'
         );
     }
+
+    async updatePlayerAFKInRedis(roomCode: string, playerId: string, afk: boolean): Promise<void> {
+        return this.safeRedisCall(
+            async () => {
+                const playerJson = await this.client.hget(`room:${roomCode}:players`, playerId);
+                if (playerJson) {
+                    const p = JSON.parse(playerJson);
+                    p.afk = afk;
+                    await this.client.hset(`room:${roomCode}:players`, playerId, JSON.stringify(p));
+                }
+            },
+            undefined,
+            'updatePlayerAFKInRedis'
+        );
+    }
     async updatePlayerSocketIdInRedis(roomCode: string, playerId: string, newSocketId: string): Promise<void> {
         return this.safeRedisCall(
             async () => {
@@ -227,6 +242,16 @@ export class RedisClient extends EventEmitter {
         return this.safeRedisCall(async () => {
             await this.client.del(`room:${roomCode}:strokes`);
         }, undefined, 'clearStrokesInRedis');
+    }
+
+    async getSolvedCount(roomCode: string): Promise<number> {
+        return this.safeRedisCall(
+            async () => {
+                return await this.client.zcard(`room:${roomCode}:solved`);
+            },
+            0,
+            'getSolvedCount'
+        );
     }
 
     async addTurnScoreInRedis(roomCode: string, score: number): Promise<void> {

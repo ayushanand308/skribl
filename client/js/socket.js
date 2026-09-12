@@ -3,18 +3,24 @@ var SocketClient = (() => {
     const listeners = new Map();
 
     function connect(serverUrl) {
+        if (socket) {
+            if (!socket.connected) {
+                socket.connect();
+            }
+            return;
+        }
+
         if (!serverUrl) {
             const isProd = window.location.hostname.endsWith('asyncayush.dev');
             serverUrl = isProd
                 ? 'https://skriblbe.asyncayush.dev'
                 : `${window.location.protocol}//${window.location.hostname}:3000`;
         }
-        if (socket && socket.connected) return;
 
         socket = io(serverUrl, {
             transports: ['websocket'],
             reconnection: true,
-            reconnectionAttempts: 10,
+            reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
             timeout: 10000,
@@ -49,6 +55,7 @@ var SocketClient = (() => {
             'room-joined',
             'player-joined',
             'player-left',
+            'player-reconnected',
             'room:settings-updated',
             'room:host-changed',
             'room:error',
@@ -72,6 +79,7 @@ var SocketClient = (() => {
             'chat:locked',
             'system:degraded',
             'system:recovered',
+            'afk-status'
         ];
 
         serverEvents.forEach((event) => {

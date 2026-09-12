@@ -42,7 +42,7 @@ const transitions: Record<gameState, Record<events,gameState | 'IGNORE'>> = {
         ALL_GUESSED: "IGNORE",
         GUESS_TIMER_EXPIRED: "IGNORE",
         NEXT_TURN: "IGNORE",
-        ALL_ROUNDS_END: "IGNORE"
+        ALL_ROUNDS_END: "GAME_END"
     },
     DRAW: {
         GUESS_TIMER_EXPIRED: "TURN_END",

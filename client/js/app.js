@@ -43,6 +43,7 @@ const App = (() => {
 
         SocketClient.on('_connected', () => {
             toast('>> CONNECTED! <<', 'success');
+            document.getElementById('overlay-reconnecting').style.display = 'none';
             const roomCode = LobbyModule.getRoomCode();
             if (roomCode) {
                 SocketClient.emit('room-reconnect', {
@@ -85,6 +86,9 @@ const App = (() => {
             if (data.gameState === 'LOBBY' || !data.gameState) {
                 showScreen('lobby');
                 ChatModule.clear();
+            } else if (data.gameState === 'GAME_END') {
+                toast('>> GAME ENDED WHILE YOU WERE AWAY <<', 'warning');
+                showScreen('home');
             } else {
                 GameModule.handleReconnect(data);
                 showScreen('game');
@@ -102,6 +106,10 @@ const App = (() => {
 
         SocketClient.on('game:back-to-lobby', () => {
             showScreen('lobby');
+            document.getElementById('overlay-game-over').style.display = 'none';
+            document.getElementById('overlay-round-end').style.display = 'none';
+            document.getElementById('overlay-waiting-picker').style.display = 'none';
+            document.getElementById('overlay-word-picker').style.display = 'none';
             ChatModule.clear();
             LobbyModule.resetForNewGame();
         });
@@ -113,6 +121,13 @@ const App = (() => {
         });
 
         SocketClient.connect();
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && !SocketClient.isConnected()) {
+                console.log('[App] Tab woke from sleep and socket is disconnected. Forcing reconnect...');
+                SocketClient.connect();
+            }
+        });
 
         console.log('[App] Initialized');
     }

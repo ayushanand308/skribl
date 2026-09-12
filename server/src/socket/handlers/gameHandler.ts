@@ -45,6 +45,25 @@ export function handleGame(socket: Socket, io: Server) {
         }
     });
 
+    socket.on("player:im-back", async (payload) => {
+        const { roomCode, playerId } = payload;
+        if (!roomCode || !playerId) return;
+
+        const room = await RoomManager.getRoom(roomCode);
+        if (room) {
+            await redisClient.updatePlayerAFKInRedis(roomCode, playerId, false);
+            await room.syncPlayersFromRedis();
+            const player = room.players.find(p => p.id === playerId);
+            if (player) {
+                io.to(roomCode).emit('chat-message', {
+                    sender: 'System',
+                    message: `>> ${player.name} is back! <<`
+                });
+                io.to(roomCode).emit('player-reconnected', { playerId });
+            }
+        }
+    });
+
     socket.on('word-choosen' , async (payload)=>{
         let {choosenWord , roomCode} = payload;
         console.log(`[GameHandler] word-choosen — room: ${roomCode}, word: ${choosenWord}`);

@@ -8,7 +8,7 @@ import { getIO } from './socketService';
 interface TimerJobData {
     roomCode: string;
     round: number;
-    type?: 'pick' | 'draw';
+    type?: 'pick' | 'draw' | 'afk-check';
 }
 
 export function startTimerWorker() {
@@ -19,6 +19,7 @@ export function startTimerWorker() {
             console.log(`[TimerWorker] Turn timer fired for room ${roomCode}, round ${round}`);
 
             const isPickTimer = job.data.type === 'pick';
+            const isAfkCheck = job.data.type === 'afk-check';
             const expectedState = isPickTimer ? 'PICK_WORD' : 'DRAW';
             const currentState = await redisClient.getRoomState(roomCode);
             if (currentState !== expectedState) {
@@ -33,14 +34,14 @@ export function startTimerWorker() {
                 return;
             }
 
+            await room.machine.syncFromRedis();
+            await room.syncPlayersFromRedis();
+            await room.syncTurnStateFromRedis();
+
             if (room.currentRound !== round) {
                 console.log(`[TimerWorker] Round mismatch for room ${roomCode}: timer for round ${round}, current is ${room.currentRound} — skipping.`);
                 return;
             }
-
-            await room.machine.syncFromRedis();
-            await room.syncPlayersFromRedis();
-            await room.syncTurnStateFromRedis();
             const localState = room.machine.getState();
             
             if (isPickTimer) {
@@ -83,6 +84,24 @@ export function startTimerWorker() {
 
             if (localState !== 'DRAW') {
                 console.log(`[TimerWorker] Local state mismatch after Redis sync (expected DRAW): ${localState} — skipping.`);
+                return;
+            }
+
+            if (isAfkCheck) {
+                const strokes = await redisClient.getStrokesFromRedis(roomCode);
+                if (!strokes || strokes.length === 0) {
+                    console.log(`[TimerWorker] AFK check failed for room ${roomCode}. No strokes found in first 15s. Skipping drawer.`);
+                    if (room.drawer) {
+                        await redisClient.updatePlayerAFKInRedis(roomCode, room.drawer.id, true);
+                        const io = getIO();
+                        io.to(roomCode).emit('chat-message', {
+                            sender: 'System',
+                            message: `>> ${room.drawer.name} was skipped due to inactivity! <<`
+                        });
+                        io.to(room.drawer.socketId || "").emit('afk-status', { isAfk: true });
+                    }
+                    await room.endTurn(true);
+                }
                 return;
             }
 

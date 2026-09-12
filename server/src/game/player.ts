@@ -2,6 +2,7 @@ export interface player {
     id : string;       
     socketId : string; 
     name : string;
-    score : number;
+    score: number;
     avatar?: string;
+    afk?: boolean;
 }

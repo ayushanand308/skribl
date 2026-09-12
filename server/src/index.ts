@@ -98,20 +98,26 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", async () => {
     const roomCode: string | undefined = RoomManager.getRoomCodeFromSocket(socket.id)
-    let room;
+    let room: any;
 
     if (roomCode) {
+      // Fetch player ID from Redis BEFORE getting/syncing the room,
+      // because syncPlayersFromRedis aggressively wipes stale socket IDs
+      const redisPlayers = await redisClient.getPlayersFromRedis(roomCode);
+      const p = redisPlayers.find(pl => pl.socketId === socket.id);
+      const preSyncPlayerId = p?.id;
 
       room = await RoomManager.getRoom(roomCode);
-    }
-
-    if (room && roomCode) {
-      await room.machine.syncFromRedis();
-      await room.syncPlayersFromRedis();
-      await room.syncTurnStateFromRedis();
-      RoomManager.removeSocketFromMap(socket.id);
-      const playerId = room.getPlayerId(socket.id);
-      const isHost = playerId ? room.isHost(playerId) : false;
+      
+      if (room) {
+        await room.machine.syncFromRedis();
+        await room.syncPlayersFromRedis();
+        await room.syncTurnStateFromRedis();
+        RoomManager.removeSocketFromMap(socket.id);
+        
+        // Use the pre-synced ID if we found one, otherwise fallback to memory
+        const playerId = preSyncPlayerId || room.getPlayerId(socket.id);
+        const isHost = playerId ? room.isHost(playerId) : false;
 
       const state = room.machine.getState();
 
@@ -130,7 +136,7 @@ io.on("connection", (socket) => {
         }
         socket.to(roomCode).emit("player-left", { playerId, isHost });
 
-        const activePlayers = room.players.filter(p => p.socketId && p.socketId !== "");
+        const activePlayers = room.players.filter((p: any) => p.socketId && p.socketId !== "");
         if (activePlayers.length === 0) {
           await room.endGameDueToLackOfPlayers();
           await RoomManager.destroyRoom(roomCode);
@@ -146,7 +152,7 @@ io.on("connection", (socket) => {
           }
         } else {
           if (playerId === room.drawer?.id) {
-            room.endTurn(true);
+            await room.endTurn(true);
           }
           if (isHost) {
             await room.electNewHost(playerId);
@@ -155,6 +161,7 @@ io.on("connection", (socket) => {
       }
 
       socket.leave(roomCode);
+    }
     }
     console.log(`[Socket] Client disconnected: ${socket.id}`);
   });

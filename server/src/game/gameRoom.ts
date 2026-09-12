@@ -55,6 +55,7 @@ export class gameRoom {
             await redisClient.removePlayerFromRedis(this.roomCode, target.id).catch(err => {
                 console.error(`[GameRoom:${this.roomCode}] Failed to remove player ${target.id} from Redis:`, err);
             });
+            await this.checkTurnOver();
         }
     }
 
@@ -65,12 +66,31 @@ export class gameRoom {
             await redisClient.updatePlayerSocketIdInRedis(this.roomCode, playerId, newSocketId).catch(err => {
                 console.error(`[GameRoom:${this.roomCode}] Failed to update socket ID for ${playerId} in Redis:`, err);
             });
+            
+            if (newSocketId === "") {
+                await this.checkTurnOver();
+            }
         }
     }
 
     async syncPlayersFromRedis(): Promise<player[]> {
         const redisPlayers = await redisClient.getPlayersFromRedis(this.roomCode);
+        const io = getIO();
+        
         if (redisPlayers && redisPlayers.length > 0) {
+            const activeSockets = await io.in(this.roomCode).fetchSockets();
+            const activeSocketIds = new Set(activeSockets.map(s => s.id));
+
+            for (const p of redisPlayers) {
+                if (p.socketId && p.socketId !== "") {
+                    // Prevent ghost players if server restarted but Redis kept old socket IDs
+                    if (!activeSocketIds.has(p.socketId)) {
+                        console.log(`[GameRoom:${this.roomCode}] Socket ${p.socketId} not in cluster-wide room. Marking disconnected.`);
+                        p.socketId = "";
+                        await redisClient.updatePlayerSocketIdInRedis(this.roomCode, p.id, "");
+                    }
+                }
+            }
             this.players = redisPlayers.sort((a, b) => a.id.localeCompare(b.id));
         }
         return this.players;
@@ -95,6 +115,23 @@ export class gameRoom {
             this.customWords = config.customWords || [];
             this.customWordsOnly = !!config.customWordsOnly;
             this.customTheme = config.customTheme || 'Default';
+        }
+    }
+
+    async checkTurnOver(): Promise<void> {
+        if (this.machine.getState() !== 'DRAW') return;
+        
+        const activeGuessers = this.players.filter(p => p.socketId && p.socketId !== "" && p.id !== this.drawer?.id);
+        const solvedCount = await redisClient.getSolvedCount(this.roomCode);
+        
+        if (activeGuessers.length > 0 && solvedCount >= activeGuessers.length) {
+            console.log(`[GameRoom:${this.roomCode}] All active guessers (${solvedCount}/${activeGuessers.length}) have guessed. Ending turn.`);
+            await this.machine.dispatch('ALL_GUESSED');
+            await this.endTurn(false);
+        } else if (activeGuessers.length === 0) {
+            console.log(`[GameRoom:${this.roomCode}] No active guessers left. Ending turn.`);
+            await this.machine.dispatch('ALL_GUESSED');
+            await this.endTurn(false);
         }
     }
 
@@ -158,20 +195,42 @@ export class gameRoom {
             roundStartTime
         );
 
-        const jobId = `turn-timer:${this.roomCode}:${this.currentRound}`;
+        const jobId = `turn-timer-${this.roomCode}-${this.currentRound}-${this.currentPlayer}`;
         await timerQueue.add(
             'turn-expire',
             { roomCode: this.roomCode, round: this.currentRound },
             { delay: this.drawTime * 1000, jobId }
         );
         console.log(`[GameRoom:${this.roomCode}] Scheduled BullMQ turn timer — job: ${jobId}, delay: ${this.drawTime}s`);
+
+        // Schedule AFK check 15 seconds into the drawing round
+        const afkJobId = `afk-check-${this.roomCode}-${this.currentRound}-${this.currentPlayer}`;
+        await timerQueue.add(
+            'turn-expire',
+            { roomCode: this.roomCode, round: this.currentRound, type: 'afk-check' },
+            { delay: 15000, jobId: afkJobId }
+        );
+        console.log(`[GameRoom:${this.roomCode}] Scheduled BullMQ AFK check timer — job: ${afkJobId}, delay: 15s`);
     }
 
     async endRoundTimer() {
-        const jobId = `turn-timer:${this.roomCode}:${this.currentRound}`;
-        timerQueue.remove(jobId).catch(err => {
-            console.warn(`[GameRoom:${this.roomCode}] Could not remove BullMQ timer job ${jobId}:`, (err as Error).message);
-        });
+        const jobId = `turn-timer-${this.roomCode}-${this.currentRound}-${this.currentPlayer}`;
+        const pickJobId = `pick-timer-${this.roomCode}-${this.currentRound}-${this.currentPlayer}`;
+        const afkJobId = `afk-check-${this.roomCode}-${this.currentRound}-${this.currentPlayer}`;
+
+        const promises = [
+            timerQueue.remove(jobId).catch(err => {
+                console.warn(`[GameRoom:${this.roomCode}] Could not remove BullMQ turn timer job ${jobId}:`, (err as Error).message);
+            }),
+            timerQueue.remove(pickJobId).catch(err => {
+                console.warn(`[GameRoom:${this.roomCode}] Could not remove BullMQ pick timer job ${pickJobId}:`, (err as Error).message);
+            }),
+            timerQueue.remove(afkJobId).catch(err => {
+                console.warn(`[GameRoom:${this.roomCode}] Could not remove BullMQ afk check timer job ${afkJobId}:`, (err as Error).message);
+            })
+        ];
+
+        await Promise.allSettled(promises);
         await redisClient.clearTurnDataInRedis(this.roomCode).catch(err => {
             console.error(`[GameRoom:${this.roomCode}] Failed to clear turn data:`, err);
         });
@@ -180,7 +239,8 @@ export class gameRoom {
     async addScore(playerId: string, score: number, timeElapsed: number): Promise<{ added: boolean, isTurnOver: boolean }> {
         const player = this.players.find(p => p.id === playerId);
         if (player) {
-            const result: [number, number] = await redisClient.recordGuess(this.roomCode, player.id, timeElapsed, this.players.length - 1);
+            const activeGuessers = this.players.filter(p => p.socketId && p.socketId !== "" && p.id !== this.drawer?.id);
+            const result: [number, number] = await redisClient.recordGuess(this.roomCode, player.id, timeElapsed, activeGuessers.length);
             const wasNewGuess = result[0];
             if (!wasNewGuess) {
                 return { added: false, isTurnOver: false };
@@ -224,6 +284,9 @@ export class gameRoom {
         }
 
         this.usedWords.clear();
+        this.currentPlayer = 0;
+        this.currentRound = 1;
+        this.drawer = null;
         console.log(`[GameRoom:${this.roomCode}] Config — maxRounds: ${this.maxRounds}, drawTime: ${this.drawTime}s, maxPlayers: ${this.maxPlayers}, customWords: ${this.customWords.length}, customWordsOnly: ${this.customWordsOnly}, theme: ${this.customTheme}`);
 
         await this.machine.dispatch('GAME_START');
@@ -265,7 +328,19 @@ export class gameRoom {
         console.log(`[GameRoom:${this.roomCode}] Config — maxRounds: ${this.maxRounds}, drawTime: ${this.drawTime}s, maxPlayers: ${this.maxPlayers}`);
 
         this.usedWords.clear();
-        this.players.forEach(p => p.score = 0);
+        
+        // Remove disconnected players before going back to lobby
+        const disconnected = this.players.filter(p => !p.socketId || p.socketId === "");
+        this.players = this.players.filter(p => p.socketId && p.socketId !== "");
+        
+        for (const dp of disconnected) {
+            await redisClient.removePlayerFromRedis(this.roomCode, dp.id);
+        }
+        for (const p of this.players) {
+            p.score = 0;
+            await redisClient.addPlayerToRedis(this.roomCode, p);
+        }
+
         await redisClient.clearSolvedSet(this.roomCode);
         await redisClient.clearDoubleDown(this.roomCode);
         this.currentPlayer = 0;
@@ -280,7 +355,7 @@ export class gameRoom {
         console.log(`[GameRoom:${this.roomCode}] Ending game early — less than 2 active players.`);
         await this.endRoundTimer();
 
-        const pickJobId = `pick-timer:${this.roomCode}:${this.currentRound}`;
+        const pickJobId = `pick-timer-${this.roomCode}-${this.currentRound}-${this.currentPlayer}`;
         const pickJob = await timerQueue.getJob(pickJobId);
         if (pickJob) {
             await pickJob.remove().catch(err => console.error(`[GameRoom:${this.roomCode}] Failed to remove pick job:`, err));
@@ -321,17 +396,31 @@ export class gameRoom {
             return;
         }
 
-        let turn = this.currentPlayer % this.players.length;
+        let startTurnIdx = this.currentPlayer % this.players.length;
+        let turn = startTurnIdx;
         let attempts = 0;
-        while ((!this.players[turn].socketId || this.players[turn].socketId === "") && attempts < this.players.length) {
+        let lapped = false;
+
+        // If we are cleanly hitting index 0 at the start of this invocation, it's a new round.
+        if (startTurnIdx === 0 && this.currentPlayer > 0) {
+            lapped = true;
+        }
+
+        while ((!this.players[turn].socketId || this.players[turn].socketId === "" || this.players[turn].afk) && attempts < this.players.length) {
             this.currentPlayer++;
-            turn = this.currentPlayer % this.players.length;
+            const nextTurn = this.currentPlayer % this.players.length;
+            // If we cross index 0 while skipping disconnected/AFK players, it's a new round.
+            if (nextTurn === 0) {
+                lapped = true;
+            }
+            turn = nextTurn;
             attempts++;
         }
 
-        this.drawer = this.players[turn]; 
+        this.drawer = this.players[turn];
 
-        if (turn === 0 && this.currentPlayer > 0) {
+        // Safely increment round if a lap occurred
+        if (lapped) {
             this.currentRound++;
         }
         console.log(`[GameRoom:${this.roomCode}] startTurn — round: ${this.currentRound}/${this.maxRounds}, playerIdx: ${this.currentPlayer}, drawer: ${this.drawer?.name}, state: ${this.machine.getState()}`);
@@ -372,7 +461,14 @@ export class gameRoom {
             maxRounds: this.maxRounds,
         });
 
-        const jobId = `pick-timer:${this.roomCode}:${this.currentRound}`;
+        const jobId = `pick-timer-${this.roomCode}-${this.currentRound}-${this.currentPlayer}`;
+        
+        // Remove any stale pick-timer job for this round ID
+        const staleJob = await timerQueue.getJob(jobId);
+        if (staleJob) {
+            await staleJob.remove().catch(err => console.error(`[GameRoom:${this.roomCode}] Failed to remove stale pick job ${jobId}`, err));
+        }
+
         await timerQueue.add(
             'turn-expire',
             { roomCode: this.roomCode, round: this.currentRound, type: 'pick' },

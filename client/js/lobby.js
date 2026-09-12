@@ -435,5 +435,9 @@ const LobbyModule = (() => {
         _updateStartButton();
     }
 
-    return { init, kickPlayer, getPlayers, getSettings, setPlayers, getRoomCode, getMyPlayerId, resetForNewGame };
+    function getHostId() {
+        return hostId;
+    }
+
+    return { init, kickPlayer, getPlayers, getSettings, setPlayers, getRoomCode, getMyPlayerId, getHostId, resetForNewGame };
 })();
