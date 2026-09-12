@@ -496,9 +496,8 @@ export class gameRoom {
 
         this.currentPlayer++;
 
-        // Calculate and assign drawer score
         const numPotentialGuessers = this.players.length - 1;
-        const averageScore = numPotentialGuessers > 0 ? (currentTurnTotalScore / numPotentialGuessers) : 0;
+        const averageScore = numPotentialGuessers > 0 ? (currentTurnTotalScore / numPotentialGuessers) * 0.5 : 0;
 
         if (this.drawer) {
             this.drawer.score += Math.floor(averageScore);
